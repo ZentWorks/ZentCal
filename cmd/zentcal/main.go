@@ -29,7 +29,7 @@ import (
 	"github.com/zentworks/zentcal/internal/webhook"
 )
 
-const version = "0.1.33"
+const version = "0.1.34"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {

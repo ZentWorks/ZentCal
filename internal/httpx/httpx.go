@@ -24,7 +24,7 @@ func (m Middleware) Wrap(next http.Handler) http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("Referrer-Policy", "same-origin")
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
+		w.Header().Set("Content-Security-Policy", ContentSecurityPolicy())
 		w.Header().Set("X-Frame-Options", "DENY")
 		if r.TLS != nil {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
@@ -56,6 +56,16 @@ func (m Middleware) Wrap(next http.Handler) http.Handler {
 		}()
 		next.ServeHTTP(sw, r)
 	})
+}
+
+func ContentSecurityPolicy(formActionOrigins ...string) string {
+	formAction := "form-action 'self'"
+	for _, origin := range formActionOrigins {
+		if origin = strings.TrimSpace(origin); origin != "" {
+			formAction += " " + origin
+		}
+	}
+	return "default-src 'self'; img-src 'self' data:; style-src 'self'; script-src 'self'; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'self'; " + formAction
 }
 
 type statusWriter struct {

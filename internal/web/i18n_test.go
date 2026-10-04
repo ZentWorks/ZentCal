@@ -84,3 +84,23 @@ func TestAdminNavigationGrouping(t *testing.T) {
 		t.Fatal("empty rendered page")
 	}
 }
+
+func TestHTTPSOriginForOIDCCSP(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "authorization endpoint", raw: "https://sso.example.test/application/o/authorize/?client=x", want: "https://sso.example.test"},
+		{name: "custom port", raw: "https://sso.example.test:8443/authorize", want: "https://sso.example.test:8443"},
+		{name: "reject http", raw: "http://sso.example.test/authorize", want: ""},
+		{name: "reject credentials", raw: "https://user:pass@sso.example.test/authorize", want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := httpsOrigin(tt.raw); got != tt.want {
+				t.Fatalf("httpsOrigin(%q) = %q, want %q", tt.raw, got, tt.want)
+			}
+		})
+	}
+}

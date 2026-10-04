@@ -36,12 +36,18 @@ func (h *Handler) saveOIDCSettings(ctx context.Context, r *http.Request) error {
 	if !localLogin && !enabled {
 		return errors.New("Lokaler Login kann nur deaktiviert werden, wenn OIDC aktiviert ist.")
 	}
+	authorizationOrigin := ""
 	if enabled {
 		if issuer == "" || clientID == "" || secret == "" {
 			return errors.New("Issuer URL, Client ID und Client Secret sind für OIDC erforderlich.")
 		}
-		if _, err := h.OIDC.Discover(ctx, issuer); err != nil {
+		discovery, err := h.OIDC.Discover(ctx, issuer)
+		if err != nil {
 			return err
+		}
+		authorizationOrigin = httpsOrigin(discovery.AuthorizationEndpoint)
+		if authorizationOrigin == "" {
+			return errors.New("OIDC Authorization Endpoint ist ungültig.")
 		}
 	}
 	if enabled && !localLogin {
@@ -56,18 +62,19 @@ func (h *Handler) saveOIDCSettings(ctx context.Context, r *http.Request) error {
 		authMethod = "client_secret_post"
 	}
 	vals := map[string]string{
-		"oidc_enabled":        boolString(enabled),
-		"oidc_issuer":         issuer,
-		"oidc_client_id":      clientID,
-		"oidc_scopes":         strings.TrimSpace(r.FormValue("oidc_scopes")),
-		"oidc_groups_claim":   strings.TrimSpace(r.FormValue("oidc_groups_claim")),
-		"oidc_group_mapping":  strings.TrimSpace(r.FormValue("oidc_group_mapping")),
-		"oidc_auth_method":    authMethod,
-		"oidc_auto_provision": boolString(r.FormValue("oidc_auto_provision") == "true"),
-		"oidc_sync_name":      boolString(r.FormValue("oidc_sync_name") == "true"),
-		"oidc_sync_email":     boolString(r.FormValue("oidc_sync_email") == "true"),
-		"oidc_sync_groups":    boolString(r.FormValue("oidc_sync_groups") == "true"),
-		"oidc_local_login":    boolString(localLogin),
+		"oidc_enabled":              boolString(enabled),
+		"oidc_issuer":               issuer,
+		"oidc_client_id":            clientID,
+		"oidc_scopes":               strings.TrimSpace(r.FormValue("oidc_scopes")),
+		"oidc_groups_claim":         strings.TrimSpace(r.FormValue("oidc_groups_claim")),
+		"oidc_group_mapping":        strings.TrimSpace(r.FormValue("oidc_group_mapping")),
+		"oidc_auth_method":          authMethod,
+		"oidc_auto_provision":       boolString(r.FormValue("oidc_auto_provision") == "true"),
+		"oidc_sync_name":            boolString(r.FormValue("oidc_sync_name") == "true"),
+		"oidc_sync_email":           boolString(r.FormValue("oidc_sync_email") == "true"),
+		"oidc_sync_groups":          boolString(r.FormValue("oidc_sync_groups") == "true"),
+		"oidc_local_login":          boolString(localLogin),
+		"oidc_authorization_origin": authorizationOrigin,
 	}
 	if vals["oidc_scopes"] == "" {
 		vals["oidc_scopes"] = "openid profile email"

@@ -2210,9 +2210,54 @@ func (h *Handler) render(w http.ResponseWriter, name string, ss *auth.Session, d
 		http.Error(w, "Template error", 500)
 	}
 }
+
+func httpsOrigin(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || u.Host == "" || u.User != nil {
+		return ""
+	}
+	return "https://" + u.Host
+}
+
+func (h *Handler) loginContentSecurityPolicy(ctx context.Context) string {
+	if h == nil || h.DB == nil {
+		return httpx.ContentSecurityPolicy()
+	}
+	vals := map[string]string{}
+	rows, err := h.DB.Query(ctx, `SELECT key,value FROM settings WHERE key = ANY($1) AND NOT secret`, []string{"oidc_enabled", "oidc_authorization_origin", "oidc_issuer"})
+	if err != nil {
+		return httpx.ContentSecurityPolicy()
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var key, value string
+		if rows.Scan(&key, &value) == nil {
+			vals[key] = value
+		}
+	}
+	if vals["oidc_enabled"] != "true" {
+		return httpx.ContentSecurityPolicy()
+	}
+	origin := httpsOrigin(vals["oidc_authorization_origin"])
+	if origin == "" {
+		// Pre-0.1.34 installations do not yet have the discovered authorization
+		// origin persisted. The validated HTTPS issuer origin is a safe fallback
+		// until the OIDC settings are saved again.
+		origin = httpsOrigin(vals["oidc_issuer"])
+	}
+	return httpx.ContentSecurityPolicy(origin)
+}
+
 func (h *Handler) renderPublic(w http.ResponseWriter, r *http.Request, name string, d pageData) {
 	d.Lang = browserLanguage(r)
 	d.Title = tr(d.Lang, d.Title)
+	if name == "login" {
+		w.Header().Set("Content-Security-Policy", h.loginContentSecurityPolicy(r.Context()))
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	templateKey := name
 	if d.Lang == "en" {
