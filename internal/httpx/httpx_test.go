@@ -5,16 +5,37 @@ import (
 	"testing"
 )
 
+func formActionTokens(csp string) []string {
+	for _, directive := range strings.Split(csp, ";") {
+		fields := strings.Fields(strings.TrimSpace(directive))
+		if len(fields) > 0 && fields[0] == "form-action" {
+			return fields[1:]
+		}
+	}
+	return nil
+}
+
+func containsToken(tokens []string, want string) bool {
+	for _, token := range tokens {
+		if token == want {
+			return true
+		}
+	}
+	return false
+}
+
 func TestContentSecurityPolicyFormAction(t *testing.T) {
-	base := ContentSecurityPolicy()
-	if !strings.Contains(base, "form-action 'self'") {
-		t.Fatalf("default CSP must restrict forms to self: %s", base)
+	baseTokens := formActionTokens(ContentSecurityPolicy())
+	if len(baseTokens) != 1 || baseTokens[0] != "'self'" {
+		t.Fatalf("default form-action must be exactly self, got %v", baseTokens)
 	}
-	withOIDC := ContentSecurityPolicy("https://sso.example.test")
-	if !strings.Contains(withOIDC, "form-action 'self' https://sso.example.test") {
-		t.Fatalf("OIDC authorization origin missing from form-action: %s", withOIDC)
+
+	const oidcOrigin = "https://sso.example.test"
+	withOIDCTokens := formActionTokens(ContentSecurityPolicy(oidcOrigin))
+	if len(withOIDCTokens) != 2 || withOIDCTokens[0] != "'self'" || withOIDCTokens[1] != oidcOrigin {
+		t.Fatalf("OIDC form-action must contain only self and the configured origin, got %v", withOIDCTokens)
 	}
-	if strings.Contains(withOIDC, "form-action *") || strings.Contains(withOIDC, "form-action 'self' https:") {
-		t.Fatalf("form-action was widened beyond the configured OIDC origin: %s", withOIDC)
+	if containsToken(withOIDCTokens, "*") || containsToken(withOIDCTokens, "https:") {
+		t.Fatalf("form-action was widened beyond the configured OIDC origin: %v", withOIDCTokens)
 	}
 }
