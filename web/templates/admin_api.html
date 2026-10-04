@@ -1,0 +1,58 @@
+{{define "content"}}
+<section class="panel"><div class="panel-head"><div><h2>Admin API Tokens</h2><p>Separate administrative API-Zugänge für Automatisierung und externe Verwaltung.</p></div><button class="btn primary small" data-modal-open="create-admin-api-token">Token erstellen</button></div>
+<div class="note"><strong>Endpoint:</strong> <code>/api/admin/v1</code> · Nur Bearer-Tokens aus diesem Bereich werden akzeptiert. Normale Benutzer-API-Tokens funktionieren hier nicht.</div>
+<div class="list">{{range .Data.Tokens}}<div class="list-row"><div class="grow"><strong>{{.Name}}</strong><small class="mono">{{.Prefix}}… · {{range $i,$s := .Scopes}}{{if $i}}, {{end}}{{$s}}{{end}}</small><small>erstellt {{fmtTimeVTZ .CreatedAt $.User.Timezone}}{{if .LastUsed}} · zuletzt {{fmtTimeTZ .LastUsed $.User.Timezone}}{{end}}{{if .Expires}} · läuft ab {{fmtTimeTZ .Expires $.User.Timezone}}{{end}}</small></div><button class="btn danger small" data-delete="/ui/admin-api-tokens/{{.ID}}" data-confirm="Admin API Token widerrufen?">Widerrufen</button></div>{{else}}<div class="empty-state compact"><span>Noch keine Admin API Tokens.</span></div>{{end}}</div></section>
+
+<section class="panel admin-api-docs-panel" data-api-base="/api/admin/v1" data-api-token-env="ZENTCAL_ADMIN_TOKEN" data-api-token-missing="Admin API Token fehlt.">
+  <div class="panel-head"><div><h2>API Dokumentation</h2><p>Endpunkte, benötigte Scopes, Payloads, cURL-Beispiele und Antworten. Der Playground sendet ausschließlich an diese ZentCal-Instanz.</p></div></div>
+  <div class="admin-api-playground-tokenbar">
+    <label>Admin API Token
+      <input data-api-playground-token type="password" autocomplete="off" spellcheck="false" placeholder="zca_admin_…">
+      <small>Nur im Arbeitsspeicher dieser Seite. Wird nicht gespeichert.</small>
+    </label>
+  </div>
+  <div class="admin-api-docs-layout">
+    <aside class="admin-api-docs-nav" aria-label="Admin API Endpunkte">
+      {{range $group := .Data.Docs}}
+      <div class="admin-api-docs-group">
+        <strong>{{$group.Name}}</strong>
+        {{range $endpoint := $group.Endpoints}}
+        <button type="button" data-api-doc="{{$endpoint.ID}}" class="{{if eq $endpoint.ID "meta"}}active{{end}}">
+          <span class="api-method {{$endpoint.Method}}">{{$endpoint.Method}}</span><span>{{$endpoint.Title}}</span>
+        </button>
+        {{end}}
+      </div>
+      {{end}}
+    </aside>
+    <div class="admin-api-docs-content">
+      {{range $group := .Data.Docs}}{{range $endpoint := $group.Endpoints}}
+      <article class="admin-api-doc" data-api-panel="{{$endpoint.ID}}" {{if ne $endpoint.ID "meta"}}hidden{{end}} data-api-method="{{$endpoint.Method}}" data-api-path="{{$endpoint.Path}}" data-api-destructive="{{$endpoint.Destructive}}">
+        <div class="admin-api-doc-head">
+          <div><div class="admin-api-endpoint-line"><span class="api-method {{$endpoint.Method}}">{{$endpoint.Method}}</span><code>{{$endpoint.Path}}</code></div><h3>{{$endpoint.Title}}</h3><p>{{$endpoint.Description}}</p></div>
+          <div class="admin-api-scope"><span>Scope</span><code>{{$endpoint.Scope}}</code></div>
+        </div>
+        {{if $endpoint.Notes}}<div class="note compact"><strong>Hinweise</strong><ul>{{range $endpoint.Notes}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+        <div class="admin-api-example-grid">
+          {{if $endpoint.Request}}<section><div class="section-title"><strong>Beispiel-Payload</strong><button type="button" class="btn ghost small" data-copy-target="request-{{$endpoint.ID}}">Kopieren</button></div><pre id="request-{{$endpoint.ID}}"><code>{{$endpoint.Request}}</code></pre></section>{{end}}
+          <section><div class="section-title"><strong>Beispielantwort</strong><button type="button" class="btn ghost small" data-copy-target="response-{{$endpoint.ID}}">Kopieren</button></div><pre id="response-{{$endpoint.ID}}"><code>{{$endpoint.Response}}</code></pre></section>
+        </div>
+        <section class="admin-api-curl-section"><div class="section-title"><strong>cURL</strong><button type="button" class="btn ghost small" data-copy-curl>Kopieren</button></div><pre data-api-curl><code></code></pre></section>
+        <section class="admin-api-playground">
+          <div class="section-title"><div><strong>API ausprobieren</strong><small>Pfad-Parameter wie <code>{id}</code> vor dem Senden ersetzen.</small></div></div>
+          <div class="admin-api-playground-fields">
+            <label>Pfad<input type="text" data-api-playground-path value="{{$endpoint.Path}}" autocomplete="off" spellcheck="false"></label>
+            {{if $endpoint.Request}}<label>Request Body<textarea data-api-playground-body autocomplete="off" spellcheck="false">{{$endpoint.Request}}</textarea></label>{{end}}
+          </div>
+          {{if $endpoint.Destructive}}<div class="alert warning compact"><strong>Achtung:</strong> Dieser Request verändert oder löscht Daten. Vor dem Senden ist eine zusätzliche Bestätigung erforderlich.</div>{{end}}
+          <div class="admin-api-playground-actions"><button type="button" class="btn primary" data-api-send>Senden</button><span data-api-playground-meta class="muted"></span></div>
+          <div class="admin-api-response" hidden data-api-response-wrap><div class="section-title"><strong>Response</strong><button type="button" class="btn ghost small" data-copy-playground-response>Kopieren</button></div><pre data-api-response><code></code></pre></div>
+        </section>
+      </article>
+      {{end}}{{end}}
+    </div>
+  </div>
+</section>
+
+<div class="modal" id="create-admin-api-token" hidden><div class="modal-backdrop" data-modal-close></div><div class="modal-card admin-api-token-modal-card"><div class="modal-head"><div><h2>Admin API Token erstellen</h2><p class="muted">Vergib nur die Berechtigungen, die der Zugriff wirklich benötigt.</p></div><button class="icon-btn" data-modal-close>×</button></div><form data-ajax action="/ui/admin-api-tokens" method="post" class="stack admin-api-token-form" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Name<input name="name" required autocomplete="off" placeholder="z. B. Provisioning"></label><fieldset class="admin-api-permissions"><legend>Berechtigungen</legend><label class="admin-api-permission"><input type="checkbox" name="scopes" value="admin:users:*" checked><span><strong>Benutzer</strong><small>Anlegen, lesen, bearbeiten und löschen.</small></span></label><label class="admin-api-permission"><input type="checkbox" name="scopes" value="admin:calendars:*" checked><span><strong>Kalender</strong><small>Normale Kalender und Mitgliedschaften verwalten.</small></span></label><label class="admin-api-permission"><input type="checkbox" name="scopes" value="admin:webhooks:*" checked><span><strong>Webhooks</strong><small>Webhooks, Secrets und Zustellungen verwalten.</small></span></label><label class="admin-api-permission"><input type="checkbox" name="scopes" value="admin:mail:read" checked><span><strong>E-Mail-Zustellungen</strong><small>Technische Zustellhistorie der letzten 30 Tage lesen.</small></span></label><div class="admin-api-permission-group"><span class="admin-api-permission-group-title">Backups</span><label class="admin-api-permission"><input type="checkbox" name="scopes" value="admin:backups:read" checked><span><strong>Lesen</strong><small>Backup-Einstellungen und vorhandene Backups abrufen.</small></span></label><label class="admin-api-permission"><input type="checkbox" name="scopes" value="admin:backups:write" checked><span><strong>Erstellen und löschen</strong><small>Backups erstellen, prüfen und entfernen.</small></span></label><label class="admin-api-permission admin-api-permission-danger"><input type="checkbox" name="scopes" value="admin:backups:restore"><span><strong>Wiederherstellen</strong><small>Kann den aktuellen Datenstand durch ein Backup ersetzen.</small></span></label></div></fieldset><label>Ablauf<select name="expires_days"><option value="0">Kein Ablauf</option><option value="30">30 Tage</option><option value="90">90 Tage</option><option value="180">180 Tage</option><option value="365">365 Tage</option></select></label><div class="form-error" data-form-error></div><div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn primary" data-loading-text="Generieren…">Generieren</button></div></form></div></div>
+<script src="/static/js/admin_api.js" defer></script>
+{{end}}

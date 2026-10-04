@@ -1,0 +1,24 @@
+{{define "content"}}
+<div class="docs-layout" data-docs-root>
+  <aside class="docs-nav" aria-label="Dokumentation">
+    {{range $section := .Data.Sections}}
+    <div class="docs-nav-group">
+      <strong>{{$section}}</strong>
+      {{range $topic := $.Data.Topics}}{{if eq $topic.Section $section}}
+      <button type="button" data-doc-topic="{{$topic.ID}}" class="{{if eq $topic.ID "start"}}active{{end}}">{{$topic.Title}}</button>
+      {{end}}{{end}}
+    </div>
+    {{end}}
+  </aside>
+  <section class="docs-content">
+    {{range $topic := .Data.Topics}}
+    <article class="docs-topic" data-doc-panel="{{$topic.ID}}" {{if ne $topic.ID "start"}}hidden{{end}}>
+      <div class="docs-topic-head"><span>{{$topic.Section}}</span><h2>{{$topic.Title}}</h2><p>{{$topic.Intro}}</p></div>
+      {{if $topic.Steps}}<div class="docs-block"><h3>{{if eq $.Lang "en"}}How it works{{else}}So funktioniert es{{end}}</h3><ol>{{range $topic.Steps}}<li>{{.}}</li>{{end}}</ol></div>{{end}}
+      {{if $topic.Tips}}<div class="docs-note"><strong>{{if eq $.Lang "en"}}Good to know{{else}}Gut zu wissen{{end}}</strong><ul>{{range $topic.Tips}}<li>{{.}}</li>{{end}}</ul></div>{{end}}
+    </article>
+    {{end}}
+  </section>
+</div>
+<script src="/static/js/documentation.js" defer></script>
+{{end}}

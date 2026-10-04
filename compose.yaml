@@ -1,0 +1,84 @@
+services:
+  init-secrets:
+    image: alpine:3.24
+    restart: "no"
+    command:
+      - /bin/sh
+      - -ec
+      - |
+        umask 077
+        mkdir -p /secrets
+        if [ ! -s /secrets/postgres_password ]; then
+          head -c 32 /dev/urandom | base64 | tr -d '\n' > /secrets/postgres_password
+        fi
+        chmod 0444 /secrets/postgres_password
+        if [ ! -s /secrets/settings_key ]; then
+          head -c 32 /dev/urandom | base64 | tr -d '\n' > /secrets/settings_key
+        fi
+        chmod 0444 /secrets/settings_key
+    volumes:
+      - zentcal-secrets:/secrets
+
+  db:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    command: ["postgres", "-c", "log_checkpoints=off"]
+    depends_on:
+      init-secrets:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_DB: zentcal
+      POSTGRES_USER: zentcal
+      POSTGRES_PASSWORD_FILE: /run/zentcal/postgres_password
+    volumes:
+      - zentcal-db:/var/lib/postgresql
+      - zentcal-secrets:/run/zentcal:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U zentcal -d zentcal"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+    networks:
+      - backend
+
+  app:
+    image: ${ZENTCAL_IMAGE:-ghcr.io/zentworks/zentcal:latest}
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      init-secrets:
+        condition: service_completed_successfully
+    ports:
+      - "${ZENTCAL_PORT:-8080}:8080"
+    environment:
+      ZENTCAL_BASE_URL: "${ZENTCAL_BASE_URL:-http://localhost:8080}"
+      ZENTCAL_DB_HOST: db
+    volumes:
+      - zentcal-secrets:/run/zentcal:ro
+      - zentcal-data:/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "/app/zentcal", "healthcheck"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+volumes:
+  zentcal-db:
+  zentcal-secrets:
+  zentcal-data:
+
+networks:
+  backend:
+    driver: bridge

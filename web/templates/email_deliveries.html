@@ -1,0 +1,15 @@
+{{define "content"}}
+<section class="panel">
+  <div class="panel-head"><div><h2>E-Mail-Zustellungen</h2><p>Technischer Zustellstatus der letzten 30 Tage. Inhalte und vollständige Empfängeradressen werden nicht gespeichert.</p></div></div>
+  <div class="form-row email-delivery-filters" data-email-delivery-filters>
+    <label>Status<select name="status"><option value="">Alle</option><option value="success">Erfolgreich</option><option value="failed">Fehlgeschlagen</option></select></label>
+    <label>Typ<input name="type" autocomplete="off" placeholder="z. B. event_invite"></label><label>Suche<input name="q" autocomplete="off" placeholder="maskierter Empfänger"></label>
+  </div>
+  <div class="table-wrap">
+    <table><thead><tr><th>Zeit</th><th>Typ</th><th>Empfänger</th><th>Status</th><th>Versuche</th><th>Fehler</th></tr></thead><tbody data-email-delivery-body>
+    {{range index .Data "Deliveries"}}<tr><td>{{fmtTimeVTZ .CreatedAt $.User.Timezone}}</td><td><code>{{.Type}}</code></td><td class="mono">{{.Recipient}}</td><td>{{if eq .Status "success"}}<span class="status-badge good">✓ Versendet</span>{{else}}<span class="status-badge bad">✕ Fehlgeschlagen</span>{{end}}</td><td>{{.Attempt}}</td><td>{{if .Error}}{{.Error}}{{else}}–{{end}}</td></tr>{{else}}<tr><td colspan="6" class="muted">Noch keine E-Mail-Zustellungen vorhanden.</td></tr>{{end}}
+    </tbody></table>
+  </div>
+</section>
+<script src="/static/js/email_deliveries.js" defer></script>
+{{end}}

@@ -1,0 +1,13 @@
+.git
+.github
+.github-release
+deploy.sh
+*.zip
+*.log
+.env
+.env.*
+data
+secrets
+
+.fuse_hidden*
+**/.fuse_hidden*

@@ -1,0 +1,45 @@
+{{define "content"}}
+{{if .Data.PasswordChangeRequired}}<div class="alert warning"><strong>{{tr .Lang "Passwort ändern erforderlich."}}</strong> {{tr .Lang "Das temporäre Passwort muss vor der weiteren Nutzung ersetzt werden."}}</div>{{end}}
+{{if .Data.SSOLinked}}<div class="alert success"><strong>{{tr .Lang "Single Sign-On verbunden."}}</strong> {{tr .Lang "Dein ZentCal-Konto ist jetzt mit dem Identity Provider verknüpft."}}</div>{{end}}
+{{with .Data.SSOError}}<div class="alert danger">{{.}}</div>{{end}}
+<div class="account-grid">
+  <section class="panel">
+    <div class="panel-head"><div><h2>{{tr .Lang "Profil"}}</h2><p>{{tr .Lang "Persönliche Einstellungen für dein ZentCal-Konto."}}</p></div></div>
+    <form data-ajax action="/ui/account/profile" method="post" class="stack" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="form-row"><label>{{tr .Lang "Vorname"}}<input value="{{.User.FirstName}}" readonly autocomplete="off"></label><label>{{tr .Lang "Nachname"}}<input value="{{.User.LastName}}" readonly autocomplete="off"></label></div>
+      <label>{{tr .Lang "E-Mail"}}<input value="{{.User.Email}}" readonly autocomplete="off"><small>{{tr .Lang "Name und E-Mail-Adresse werden durch einen Administrator bzw. den Identity Provider verwaltet."}}</small></label>
+      <div class="form-row">
+        <label>{{tr .Lang "Sprache"}}<select name="language"><option value="de" {{if eq .User.Language "de"}}selected{{end}}>Deutsch</option><option value="en" {{if eq .User.Language "en"}}selected{{end}}>English</option></select></label>
+        {{$currentTZ := .User.Timezone}}{{$zones := timezones}}<label>{{tr .Lang "Zeitzone"}}<select name="timezone" required>{{if not (containsString $zones $currentTZ)}}<option value="{{$currentTZ}}" selected>{{$currentTZ}}</option>{{end}}{{range $zones}}<option value="{{.}}" {{if eq . $currentTZ}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+      </div>
+      <div class="form-error" data-form-error></div><div class="settings-actions"><button class="btn primary" type="submit" data-loading-text="{{tr .Lang "Speichern…"}}">{{tr .Lang "Speichern"}}</button></div>
+    </form>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><h2>{{tr .Lang "Passwort"}}</h2><p>{{if eq .User.AuthType "oidc"}}{{tr .Lang "Dieses Konto wird über Single Sign-On verwaltet."}}{{else}}{{tr .Lang "Lokales ZentCal-Passwort ändern."}}{{end}}</p></div></div>
+    {{if eq .User.AuthType "oidc"}}
+      <div class="panel-body stack"><div class="note account-note"><strong>{{tr .Lang "Single Sign-On aktiv."}}</strong> {{tr .Lang "Das lokale Passwort ist für diesen Account deaktiviert. Für CalDAV/WebDAV ausschließlich App-Passwörter verwenden."}}</div>
+      {{if and .OIDCEnabled .OIDCLocalLogin .SMTPEnabled}}<div class="stack"><div class="note compact">{{tr .Lang "Zum Trennen meldest du dich erneut beim Identity Provider an. Danach erhältst du ein temporäres Passwort per E-Mail und wirst abgemeldet."}}</div><div class="settings-actions"><button class="btn danger" type="button" data-modal-open="sso-unlink-confirm">{{tr .Lang "SSO-Verbindung lösen"}}</button></div></div>{{else}}<div class="note compact">{{tr .Lang "SSO kann nur getrennt werden, wenn OIDC, lokaler Login und SMTP aktiviert sind."}}</div>{{end}}</div>
+    {{else}}
+      <form data-ajax action="/ui/account/password" method="post" class="stack" autocomplete="off">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <label>{{tr .Lang "Aktuelles Passwort"}}<input type="password" name="current_password" autocomplete="current-password" required></label>
+        <label>{{tr .Lang "Neues Passwort"}}<input type="password" name="new_password" autocomplete="new-password" minlength="10" required></label>
+        <label>{{tr .Lang "Neues Passwort wiederholen"}}<input type="password" name="confirm_password" autocomplete="new-password" minlength="10" required></label>
+        <div class="form-error" data-form-error></div><div class="settings-actions"><button class="btn primary" type="submit" data-loading-text="{{tr .Lang "Ändern…"}}">{{tr .Lang "Passwort ändern"}}</button></div>
+      </form>
+      {{if .OIDCEnabled}}<div class="panel-body sso-link-block"><div class="note compact">{{tr .Lang "Du kannst dieses bestehende ZentCal-Konto bewusst mit deinem SSO-Konto verbinden. Die Verknüpfung erfolgt nicht automatisch nur anhand der E-Mail-Adresse."}}</div><div class="settings-actions"><button class="btn secondary" type="button" data-modal-open="sso-link-confirm">{{tr .Lang "Mit SSO verbinden"}}</button></div></div>{{end}}
+    {{end}}
+  </section>
+</div>
+
+<section class="panel">
+  <div class="panel-head"><div><h2>{{tr .Lang "App-Passwörter"}}</h2><p>{{tr .Lang "Separate Zugangsdaten für macOS, iPhone, DAVx⁵, Thunderbird und andere DAV-Clients."}}</p></div><button class="btn primary small" data-modal-open="create-app-password">{{tr .Lang "App-Passwort erstellen"}}</button></div>
+  <div class="note">{{tr .Lang "Für CalDAV/WebDAV ist ein App-Passwort erforderlich. Es kann einzeln widerrufen werden, ohne dein Hauptpasswort zu ändern."}}</div>
+  <div class="list">{{range .Data.AppPasswords}}<div class="list-row"><div class="grow"><strong>{{.Name}}</strong><small class="mono">{{.Prefix}}… · {{tr $.Lang "erstellt"}} {{fmtTimeVTZ .CreatedAt $.User.Timezone}}{{if .LastUsed}} · {{tr $.Lang "zuletzt"}} {{fmtTimeTZ .LastUsed $.User.Timezone}}{{end}}</small></div><button class="btn danger small" data-delete="/ui/app-passwords/{{.ID}}" data-confirm="App-Passwort widerrufen?">{{tr $.Lang "Widerrufen"}}</button></div>{{else}}<div class="empty-state compact"><span>{{tr $.Lang "Noch keine App-Passwörter."}}</span></div>{{end}}</div>
+</section>
+
+<div class="modal" id="create-app-password" hidden><div class="modal-backdrop" data-modal-close></div><div class="modal-card"><div class="modal-head"><h2>{{tr .Lang "App-Passwort erstellen"}}</h2><button class="icon-btn" data-modal-close aria-label="{{tr .Lang "Schließen"}}">×</button></div><form data-ajax action="/ui/app-passwords" method="post" class="stack" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>{{tr .Lang "Gerätename"}}<input name="name" required placeholder="z. B. MacBook Kalender" autocomplete="off"></label><div class="form-error" data-form-error></div><div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>{{tr .Lang "Abbrechen"}}</button><button class="btn primary" data-loading-text="{{tr .Lang "Generieren…"}}">{{tr .Lang "Generieren"}}</button></div></form></div></div>
+{{end}}

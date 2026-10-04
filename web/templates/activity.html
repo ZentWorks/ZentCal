@@ -1,0 +1,22 @@
+{{define "content"}}
+<div class="page-actions">
+  <p class="lead">Administrative Änderungen der letzten 60 Tage.</p>
+  <div class="inline-actions activity-filters">
+    <input class="compact-search" type="search" placeholder="Aktivitäten suchen…" autocomplete="off" data-activity-search>
+    <select class="compact-select" data-activity-type><option value="">Alle Aktionen</option><option value="user">Benutzer</option><option value="calendar">Kalender</option><option value="event">Termine</option><option value="member">Mitglieder</option><option value="webhook">Webhooks</option><option value="backup">Backups</option></select>
+    <select class="compact-select" data-activity-days><option value="7">7 Tage</option><option value="30">30 Tage</option><option value="60" selected>60 Tage</option></select>
+  </div>
+</div>
+<div class="panel">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Zeit</th><th>Akteur</th><th>Aktion</th><th>Ressource</th><th>IP</th><th>Request-ID</th></tr></thead>
+      <tbody id="activity-body">
+      {{range .Data.Rows}}<tr data-activity-id="{{.ID}}"><td>{{fmtTimeVTZ .CreatedAt $.User.Timezone}}</td><td>{{.Actor}}</td><td><span class="badge">{{.Action}}</span></td><td>{{.ResourceType}} {{.ResourceID}}</td><td class="mono small">{{.IP}}</td><td class="mono small">{{.RequestID}}</td></tr>{{else}}<tr data-activity-empty><td colspan="6" class="empty-cell">Noch keine Audit-Einträge.</td></tr>{{end}}
+      </tbody>
+    </table>
+  </div>
+  {{if .Data.HasMore}}<div class="load-more-wrap"><button class="btn secondary" data-activity-more data-cursor="{{.Data.Cursor}}" data-loading-text="Lade…">Mehr laden</button></div>{{end}}
+</div>
+<script src="/static/js/admin_search.js" defer></script>
+{{end}}

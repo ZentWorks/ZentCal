@@ -1,0 +1,8 @@
+.DS_Store
+*.log
+*.zip
+.env
+.env.*
+!.env.example
+/data/
+/secrets/

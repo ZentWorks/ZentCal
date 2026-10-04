@@ -1,0 +1,36 @@
+{{define "content"}}
+<div class="stats-grid dashboard-stats">
+  <a class="stat" href="/calendars"><span>Meine Kalender</span><strong>{{.Data.Calendars}}</strong></a>
+  <div class="stat"><span>Termine</span><strong>{{.Data.Events}}</strong></div>
+  <div class="stat"><span>Anstehend</span><strong>{{len .Data.Upcoming}}</strong></div>
+  <div class="stat"><span>Offene Einladungen</span><strong>{{.Data.PendingInvites}}</strong></div>
+  {{if or (eq .User.Role "owner") (eq .User.Role "administrator")}}<a class="stat" href="/users"><span>Benutzer</span><strong>{{.Data.Users}}</strong></a>{{end}}
+</div>
+
+<div class="two-col dashboard-grid">
+  <section class="panel">
+    <div class="panel-head"><div><h2>Anstehende Termine</h2><p>Die nächsten Termine aus deinen verfügbaren Kalendern.</p></div></div>
+    <div class="list dashboard-event-list">
+      {{range .Data.Upcoming}}
+      <a class="list-row dashboard-event" href="/calendars/{{.CalendarID}}">
+        <svg class="cal-swatch" viewBox="0 0 4 30" aria-hidden="true"><rect width="4" height="30" rx="2" fill="{{.Color}}"/></svg>
+        <div class="grow"><strong>{{if .Summary}}{{.Summary}}{{else}}(ohne Titel){{end}}</strong><small>{{.CalendarName}} · {{fmtTimeTZ .Start $.User.Timezone}}</small></div>
+      </a>
+      {{else}}<div class="empty-state compact"><span>Keine anstehenden Termine.</span></div>{{end}}
+    </div>
+  </section>
+
+  <section class="panel">
+    <div class="panel-head"><div><h2>Meine Kalender</h2><p>Persönlich und für dich freigegeben.</p></div>{{if .Data.CanCreateCalendars}}<a class="btn secondary small" href="/calendars?create=1">Kalender erstellen</a>{{end}}</div>
+    <div class="list dashboard-calendar-list">
+      {{range .Data.CalendarList}}
+      <a class="list-row" href="/calendars/{{.ID}}"><svg class="cal-swatch" viewBox="0 0 4 30" aria-hidden="true"><rect width="4" height="30" rx="2" fill="{{.Color}}"/></svg><div class="grow"><strong>{{.Name}}</strong><small>{{if eq .SystemKind "personal"}}Persönlich{{else if eq .Access "owner"}}Eigentümer{{else if eq .Access "contributor"}}Bearbeiten{{else if eq .Access "viewer"}}Betrachter{{else}}{{.Access}}{{end}}</small></div></a>
+      {{else}}<div class="empty-state compact"><span>Noch keine Kalender vorhanden.</span></div>{{end}}
+    </div>
+  </section>
+</div>
+
+{{if or (eq .User.Role "owner") (eq .User.Role "administrator")}}
+<div class="panel"><div class="panel-head"><div><h2>Letzte Aktivitäten</h2><p>Änderungen an Kalendern, Benutzern und Terminen.</p></div><a class="btn secondary" href="/activity">Alle anzeigen</a></div><div class="table-wrap"><table><thead><tr><th>Zeit</th><th>Akteur</th><th>Aktion</th><th>Ressource</th></tr></thead><tbody>{{range .Data.Activity}}<tr><td>{{fmtTimeVTZ .CreatedAt $.User.Timezone}}</td><td>{{.Actor}}</td><td><span class="badge">{{.Action}}</span></td><td>{{.ResourceType}}{{if .ResourceID}} · <span class="mono small">{{.ResourceID}}</span>{{end}}</td></tr>{{else}}<tr><td colspan="4" class="empty-cell">Noch keine Aktivitäten.</td></tr>{{end}}</tbody></table></div></div>
+{{end}}
+{{end}}

@@ -1,0 +1,121 @@
+{{define "content"}}
+<div class="stats-grid backup-stats">
+  <div class="stat"><span>Letztes Backup</span><strong class="stat-text">{{if .Data.Last}}{{fmtTimeTZ .Data.Last .User.Timezone}}{{else}}–{{end}}</strong></div>
+  <div class="stat"><span>Nächstes Backup</span><strong class="stat-text">{{if .Data.Next}}{{fmtTimeTZ .Data.Next .User.Timezone}}{{else}}–{{end}}</strong></div>
+  <div class="stat"><span>Datenbank</span><strong>{{.Data.DBSize}}</strong></div>
+  <div class="stat"><span>Speicherziel</span><strong>{{upper .Data.Config.Provider}}</strong></div>
+</div>
+
+<form data-ajax action="/ui/backups/settings" method="post" class="backup-settings" id="backup-settings-form" autocomplete="off" data-encryption-set="{{if .Data.EncryptionSet}}true{{else}}false{{end}}">
+  <input type="hidden" name="csrf" value="{{.CSRF}}">
+
+  <section class="panel backup-section">
+    <div class="panel-head">
+      <div><h2>Backup-Ziel</h2><p>Lege fest, wo ZentCal die Backups speichert und wie viele erfolgreiche Sicherungen behalten werden.</p></div>
+      <button class="btn secondary small" type="button" data-backup-test>Verbindung testen</button>
+    </div>
+    <div class="backup-section-body stack">
+      <div class="form-row">
+        <label>Speicherziel
+          <select name="backup_provider" data-backup-provider-select>
+            <option value="local" {{if eq .Data.Config.Provider "local"}}selected{{end}}>Local Storage</option>
+            <option value="sftp" {{if eq .Data.Config.Provider "sftp"}}selected{{end}}>SFTP</option>
+            <option value="s3" {{if eq .Data.Config.Provider "s3"}}selected{{end}}>S3 kompatibel</option>
+          </select>
+        </label>
+        <label>Aufbewahrung
+          <input type="number" min="1" max="3650" name="backup_retention" value="{{.Data.Config.Retention}}" required autocomplete="off">
+          <small>Anzahl erfolgreicher Backups, die behalten werden.</small>
+        </label>
+      </div>
+
+      <div data-backup-provider="local" class="provider-box provider-box-clean">
+        <div class="provider-box-title"><strong>Local Storage</strong><span class="badge">Lokal</span></div>
+        <p>Backups werden im persistenten Docker-Volume unter <code>/data/backups</code> gespeichert.</p>
+      </div>
+
+      <div data-backup-provider="sftp" class="provider-box provider-box-clean stack">
+        <div class="provider-box-title"><div><strong>SFTP</strong><small>Externes Backup-Ziel per SSH.</small></div></div>
+        <div class="form-row"><label>Host<input name="backup_sftp_host" value="{{.Data.Config.SFTPHost}}" placeholder="uXXXXX.your-storagebox.de" autocomplete="off"></label><label>Port<input type="number" min="1" max="65535" name="backup_sftp_port" value="{{.Data.Config.SFTPPort}}" autocomplete="off"></label></div>
+        <div class="form-row"><label>Benutzer<input name="backup_sftp_user" value="{{.Data.Config.SFTPUser}}" autocomplete="off"></label><label>Zielpfad<input name="backup_sftp_path" value="{{.Data.Config.SFTPPath}}" placeholder="zentcal" autocomplete="off"></label></div>
+        <fieldset class="sftp-auth"><legend>Authentifizierung</legend>
+          <div class="sftp-auth-switch">
+            <label class="sftp-auth-option"><input type="radio" name="backup_sftp_auth_method" value="password" {{if eq .Data.SFTPAuthMethod "password"}}checked{{end}}><span><strong>Passwort</strong><small>Benutzername und Passwort</small></span></label>
+            <label class="sftp-auth-option"><input type="radio" name="backup_sftp_auth_method" value="key" {{if eq .Data.SFTPAuthMethod "key"}}checked{{end}}><span><strong>SSH Private Key</strong><small>Privater SSH-Schlüssel</small></span></label>
+          </div>
+        </fieldset>
+        <div data-sftp-auth="password"><label>Passwort<input type="password" name="backup_sftp_password" autocomplete="new-password" placeholder="{{if .Data.SFTPPasswordSet}}Gespeichert – leer lassen{{else}}SFTP-Passwort{{end}}"></label></div>
+        <div data-sftp-auth="key"><label>SSH Private Key<textarea name="backup_sftp_private_key" rows="6" placeholder="{{if .Data.SFTPKeySet}}Gespeichert – leer lassen{{else}}-----BEGIN OPENSSH PRIVATE KEY-----{{end}}" autocomplete="off"></textarea></label></div>
+        <label class="toggle-row compact"><input type="checkbox" name="backup_sftp_verify_host" value="true" {{if .Data.Config.SFTPVerifyHost}}checked{{end}}><span><strong>SSH Host Key prüfen</strong><small>Beim ersten Kontakt wird der Host-Schlüssel gespeichert. Spätere Änderungen werden abgelehnt.</small></span></label>
+      </div>
+
+      <div data-backup-provider="s3" class="provider-box provider-box-clean stack">
+        <div class="provider-box-title"><div><strong>S3 kompatibel</strong><small>Object Storage mit S3-kompatibler API.</small></div></div>
+        <div class="form-row"><label>Endpoint<input type="url" name="backup_s3_endpoint" value="{{.Data.Config.S3.Endpoint}}" placeholder="https://fsn1.your-objectstorage.com" autocomplete="off"></label><label>Region<input name="backup_s3_region" value="{{.Data.Config.S3.Region}}" placeholder="us-east-1" autocomplete="off"></label></div>
+        <div class="form-row"><label>Bucket<input name="backup_s3_bucket" value="{{.Data.Config.S3.Bucket}}" autocomplete="off"></label><label>Prefix<input name="backup_s3_prefix" value="{{.Data.Config.S3.Prefix}}" placeholder="zentcal" autocomplete="off"></label></div>
+        <div class="form-row"><label>Access Key<input name="backup_s3_access_key" value="{{.Data.Config.S3.AccessKey}}" autocomplete="off"></label><label>Secret Key<input type="password" name="backup_s3_secret_key" autocomplete="new-password" placeholder="{{if .Data.S3SecretSet}}Gespeichert – leer lassen{{else}}Secret Key{{end}}"></label></div>
+        <label class="toggle-row compact"><input type="checkbox" name="backup_s3_tls_verify" value="true" {{if .Data.Config.S3.TLSVerify}}checked{{end}}><span><strong>TLS-Zertifikat prüfen</strong></span></label>
+      </div>
+    </div>
+  </section>
+
+  <details class="panel backup-section backup-collapsible" {{if not .Data.EncryptionSet}}open{{end}}>
+    <summary class="panel-head backup-details-head">
+      <div><h2>Backup-Verschlüsselung</h2><p>Jedes ZentCal-Backup wird vor dem Speichern verschlüsselt.</p></div>
+      <div class="backup-details-status"><span class="backup-state {{if .Data.EncryptionSet}}ready{{else}}missing{{end}}">{{if .Data.EncryptionSet}}✓ Eingerichtet{{else}}! Nicht eingerichtet{{end}}</span><span class="details-chevron">⌄</span></div>
+    </summary>
+    <div class="backup-section-body stack">
+      {{if not .Data.EncryptionSet}}<div class="alert warning backup-encryption-warning"><strong>Verschlüsselungspasswort erforderlich.</strong> Ohne Passwort können weder manuelle noch automatische Backups erstellt werden.</div>{{end}}
+      <label>Verschlüsselungspasswort
+        <input type="password" name="backup_encryption_password" autocomplete="new-password" placeholder="{{if .Data.EncryptionSet}}Bereits festgelegt – leer lassen{{else}}Mindestens 10 Zeichen{{end}}">
+        <small>{{if .Data.EncryptionSet}}Das bestehende Passwort bleibt erhalten. Für eine Wiederherstellung muss es erneut eingegeben werden.{{else}}Mindestens 10 Zeichen. Das Passwort wird verschlüsselt gespeichert und für automatische Backups verwendet.{{end}}</small>
+      </label>
+    </div>
+  </details>
+
+  <details class="panel backup-section backup-auto-section backup-collapsible" {{if .Data.Config.Enabled}}open{{end}}>
+    <summary class="panel-head backup-details-head">
+      <div><h2>Automatische Backups</h2><p>{{if .Data.Config.Enabled}}Aktiv · {{if eq .Data.Config.Schedule "weekly"}}Wöchentlich{{else}}Täglich{{end}} um {{.Data.Config.Time}}{{else}}Deaktiviert{{end}}</p></div>
+      <span class="details-chevron">⌄</span>
+    </summary>
+    <div class="backup-section-body stack">
+      <label class="toggle-row"><input type="checkbox" name="backup_enabled" value="true" {{if .Data.Config.Enabled}}checked{{end}} data-backup-enabled><span><strong>Automatische Backups aktivieren</strong><small>ZentCal erstellt die Sicherung selbstständig nach dem festgelegten Zeitplan.</small></span></label>
+      <div class="alert warning" data-auto-encryption-warning {{if .Data.EncryptionSet}}hidden{{end}}>Zum Aktivieren automatischer Backups muss zuerst ein Verschlüsselungspasswort gespeichert werden.</div>
+      <div class="form-row"><label>Zeitplan<select name="backup_schedule" data-backup-schedule><option value="daily" {{if eq .Data.Config.Schedule "daily"}}selected{{end}}>Täglich</option><option value="weekly" {{if eq .Data.Config.Schedule "weekly"}}selected{{end}}>Wöchentlich</option></select></label><label>Uhrzeit<input type="time" name="backup_time" value="{{.Data.Config.Time}}" required></label></div>
+      <div data-backup-weekdays class="weekday-picker"><span class="field-label">Tage</span><div class="weekday-chips"><label><input type="checkbox" name="backup_weekdays" value="1" {{if containsInt .Data.Config.Weekdays 1}}checked{{end}}><span>Mo</span></label><label><input type="checkbox" name="backup_weekdays" value="2" {{if containsInt .Data.Config.Weekdays 2}}checked{{end}}><span>Di</span></label><label><input type="checkbox" name="backup_weekdays" value="3" {{if containsInt .Data.Config.Weekdays 3}}checked{{end}}><span>Mi</span></label><label><input type="checkbox" name="backup_weekdays" value="4" {{if containsInt .Data.Config.Weekdays 4}}checked{{end}}><span>Do</span></label><label><input type="checkbox" name="backup_weekdays" value="5" {{if containsInt .Data.Config.Weekdays 5}}checked{{end}}><span>Fr</span></label><label><input type="checkbox" name="backup_weekdays" value="6" {{if containsInt .Data.Config.Weekdays 6}}checked{{end}}><span>Sa</span></label><label><input type="checkbox" name="backup_weekdays" value="0" {{if containsInt .Data.Config.Weekdays 0}}checked{{end}}><span>So</span></label></div></div>
+    </div>
+  </details>
+
+  <div class="backup-settings-savebar"><div class="form-error" data-form-error></div><button class="btn primary" data-loading-text="Speichern…">Einstellungen speichern</button></div>
+</form>
+
+<section class="panel backup-section backup-manual" data-encryption-ready="{{if .Data.EncryptionSet}}true{{else}}false{{end}}">
+  <div class="panel-head"><div><h2>Manuelles Backup</h2><p>Erstellt sofort eine verschlüsselte Sicherung auf dem aktuell konfigurierten Speicherziel.</p></div></div>
+  <div class="backup-section-body stack">
+    <div class="backup-readiness">
+      <div><span>Speicherziel</span><strong>{{upper .Data.Config.Provider}}</strong></div>
+      <div><span>Verschlüsselung</span><strong class="{{if .Data.EncryptionSet}}status-ok{{else}}status-warn{{end}}">{{if .Data.EncryptionSet}}✓ Eingerichtet{{else}}! Passwort fehlt{{end}}</strong></div>
+    </div>
+    {{if not .Data.EncryptionSet}}<div class="alert warning"><strong>Backup kann noch nicht gestartet werden.</strong> Speichere zuerst oben ein Verschlüsselungspasswort.</div>{{end}}
+    <div class="backup-live" data-backup-live hidden><span class="spinner"></span><div><strong data-backup-live-title>Backup läuft</strong><small data-backup-live-stage>Vorbereitung…</small></div></div>
+    <div class="inline-actions backup-manual-actions"><button class="btn primary" type="button" data-backup-run {{if not .Data.EncryptionSet}}disabled title="Zuerst ein Verschlüsselungspasswort speichern"{{end}}>Backup jetzt</button></div>
+  </div>
+</section>
+
+<section class="panel backup-section backup-history" data-backup-auth-type="{{.User.AuthType}}">
+  <div class="panel-head"><div><h2>Backup-Verlauf</h2><p>Erstellte Sicherungen, Status und Wiederherstellung.</p></div><button class="btn secondary small" type="button" data-backup-upload-restore>Backup hochladen & wiederherstellen</button></div>
+  <div class="table-wrap backup-history-wrap"><table class="backup-history-table"><thead><tr><th>Zeit</th><th>Ziel</th><th>Datei</th><th>SHA-256</th><th>Größe</th><th>Status</th><th></th></tr></thead><tbody>{{range .Data.Items}}<tr><td class="backup-time">{{fmtTimeVTZ .CreatedAt $.User.Timezone}}</td><td>{{upper .Provider}}</td><td class="backup-file"><strong title="{{.Filename}}">{{.Filename}}</strong>{{if .Error}}<small class="danger-text">{{.Error}}</small>{{end}}</td><td class="backup-hash"><code title="{{.Checksum}}">{{if .Checksum}}{{.Checksum}}{{else}}–{{end}}</code></td><td class="backup-size">{{if gt .Size 0}}{{fmtBytes .Size}}{{else}}–{{end}}</td><td><span class="badge {{if eq .Status "success"}}success{{end}}">{{.Status}}</span></td><td class="right"><div class="backup-table-actions">{{if eq .Status "success"}}<a class="btn small secondary" href="/ui/backups/{{.ID}}/download">Download</a><button class="btn small secondary" type="button" data-backup-verify="{{.ID}}">Verify</button><button class="btn small warning" type="button" data-backup-restore="{{.ID}}">Restore</button>{{end}}<button class="btn small danger" type="button" data-backup-delete="{{.ID}}">Löschen</button></div></td></tr>{{else}}<tr><td colspan="7" class="empty-cell">Noch keine Backups vorhanden.</td></tr>{{end}}</tbody></table></div>
+</section>
+
+<div data-backup-reauth-return data-action="{{.Data.ReauthAction}}" data-target="{{.Data.ReauthTarget}}" hidden></div>
+
+<div class="modal" id="verify-backup" hidden><div class="modal-backdrop" data-modal-close></div><div class="modal-card"><div class="modal-head"><h2>Backup prüfen</h2><button class="icon-btn" data-modal-close>×</button></div><form data-ajax action="/ui/backups/" method="post" id="verify-backup-form" class="stack" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Backup-Verschlüsselungspasswort<input type="password" name="encryption_password" required></label><div class="form-error" data-form-error></div><div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn primary" data-loading-text="Prüfe…">Verify</button></div></form></div></div>
+
+<div class="modal" id="backup-reauth" hidden><div class="modal-backdrop"></div><div class="modal-card"><div class="modal-head"><h2 data-backup-reauth-title>Aktion bestätigen</h2><button class="icon-btn" type="button" data-modal-close>×</button></div><form data-ajax action="/ui/backups/reauth" method="post" id="backup-reauth-form" class="stack" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="action"><input type="hidden" name="target"><p class="muted" data-backup-reauth-text>Aktion wirklich ausführen?</p><div class="form-error" data-form-error></div><div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn primary" data-loading-text="Weiter…">Ja</button></div></form></div></div>
+
+<div class="modal" id="restore-backup" hidden><div class="modal-backdrop"></div><div class="modal-card"><div class="modal-head"><h2>Backup wiederherstellen</h2><button class="icon-btn" data-modal-close>×</button></div><div class="alert danger"><strong>Achtung:</strong> Der aktuelle ZentCal-Datenbestand wird durch den Stand des Backups ersetzt. Nach erfolgreichem Restore startet ZentCal neu.</div><form data-ajax action="/ui/backups/" method="post" id="restore-backup-form" class="stack" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}">{{if ne .User.AuthType "oidc"}}<label>Aktuelles Passwort<input type="password" name="admin_password" autocomplete="current-password" required><small>Bestätige die Wiederherstellung mit deinem aktuellen ZentCal-Passwort.</small></label>{{end}}<label>Backup-Verschlüsselungspasswort<input type="password" name="encryption_password" required></label><label class="restore-confirm-label"><span>Zur Bestätigung <code>RESTORE</code> eingeben</span><input name="confirm_text" autocomplete="off" required></label><label class="toggle-row"><input type="checkbox" name="final_confirm" value="yes" required><span><strong>Ja, aktuellen Datenbestand überschreiben</strong></span></label><div class="form-error" data-form-error></div><div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn warning" data-loading-text="Stelle wieder her…">Wiederherstellen</button></div></form></div></div>
+
+<div class="modal" id="delete-backup" hidden><div class="modal-backdrop"></div><div class="modal-card"><div class="modal-head"><h2>Backup löschen</h2><button class="icon-btn" data-modal-close>×</button></div><form id="delete-backup-form" class="stack" autocomplete="off"><input type="hidden" name="backup_id">{{if ne .User.AuthType "oidc"}}<label>Aktuelles Passwort<input type="password" name="admin_password" autocomplete="current-password" required><small>Bestätige das Löschen mit deinem aktuellen ZentCal-Passwort.</small></label>{{end}}<p class="muted">Das Backup wird dauerhaft vom konfigurierten Speicherziel entfernt.</p><div class="form-error" data-form-error></div><div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn danger" type="submit" data-loading-text="Lösche…">Backup löschen</button></div></form></div></div>
+
+<div class="modal" id="upload-restore" hidden><div class="modal-backdrop"></div><div class="modal-card"><div class="modal-head"><h2>Backup hochladen & wiederherstellen</h2><button class="icon-btn" data-modal-close>×</button></div><div class="alert danger">Der aktuelle Datenbestand wird überschrieben. Verwende ausschließlich ein vertrauenswürdiges ZentCal-Backup.</div><form data-ajax enctype="multipart/form-data" action="/ui/backups/upload-restore" method="post" class="stack" id="upload-restore-form" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><label>Backup-Datei<input type="file" name="backup_file" accept=".zcbak" required></label>{{if ne .User.AuthType "oidc"}}<label>Aktuelles Passwort<input type="password" name="admin_password" autocomplete="current-password" required></label>{{end}}<label>Backup-Verschlüsselungspasswort<input type="password" name="encryption_password" required></label><label class="restore-confirm-label"><span>Zur Bestätigung <code>RESTORE</code> eingeben</span><input name="confirm_text" required autocomplete="off"></label><label class="toggle-row"><input type="checkbox" name="final_confirm" value="yes" required><span><strong>Ja, aktuellen Datenbestand überschreiben</strong></span></label><div class="form-error" data-form-error></div><div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn warning" data-loading-text="Lade & stelle wieder her…">Wiederherstellen</button></div></form></div></div>
+{{end}}

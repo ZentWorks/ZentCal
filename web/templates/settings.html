@@ -1,0 +1,109 @@
+{{define "content"}}
+<div class="settings-layout">
+  <nav class="settings-nav" aria-label="Einstellungsbereiche">
+    <a href="#general">Allgemein</a><a href="#security">Sicherheit</a><a href="#email">E-Mail / SMTP</a><a href="#sso">SSO / OIDC</a>
+  </nav>
+  <div class="settings-content">
+    <section class="panel" id="general"><div class="panel-head"><div><h2>Allgemein</h2><p>Grundlegende Instanz- und Darstellungseinstellungen.</p></div></div>
+      <form data-ajax action="/ui/settings" method="post" class="stack settings-form" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="section" value="general">
+        {{$currentTZ := index .Data "timezone"}}{{$zones := timezones}}<label>Zeitzone<select name="timezone" required>{{if not (containsString $zones $currentTZ)}}<option value="{{$currentTZ}}" selected>{{$currentTZ}}</option>{{end}}{{range $zones}}<option value="{{.}}" {{if eq . $currentTZ}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+        <div class="form-error" data-form-error></div><div class="settings-actions"><button class="btn primary" data-loading-text="Speichern…">Speichern</button></div>
+      </form>
+    </section>
+
+    <section class="panel" id="security"><div class="panel-head"><div><h2>Sicherheit</h2><p>Session-Laufzeit und Schutz vor wiederholten Login-Versuchen.</p></div></div>
+      <form data-ajax action="/ui/settings" method="post" class="stack settings-form" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="section" value="security">
+        <div class="form-row"><label>Session-Laufzeit (Stunden)<input type="number" min="1" max="8760" name="session_lifetime_hours" value="{{index .Data "session_lifetime_hours"}}" required autocomplete="off"><small>Gilt für neu erstellte Sessions.</small></label><label>Fehlversuche bis Sperre<input type="number" min="3" max="20" name="login_max_failures" value="{{index .Data "login_max_failures"}}" required autocomplete="off"></label></div>
+        <label>Sperrdauer (Minuten)<input type="number" min="1" max="1440" name="lockout_minutes" value="{{index .Data "lockout_minutes"}}" required autocomplete="off"></label>
+        <div class="form-error" data-form-error></div><div class="settings-actions"><button class="btn primary" data-loading-text="Speichern…">Speichern</button></div>
+      </form>
+    </section>
+
+    <section class="panel" id="email"><div class="panel-head"><div><h2>E-Mail / SMTP</h2><p>Für Benutzer- und Termin-Einladungen sowie Systembenachrichtigungen.</p></div><button class="btn secondary small" type="button" data-modal-open="mail-templates-modal">E-Mail-Vorlagen</button></div>
+      <form data-ajax action="/ui/settings" method="post" class="stack settings-form" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="section" value="smtp">
+        <label class="toggle-row"><input type="checkbox" name="smtp_enabled" value="true" {{if eq (index .Data "smtp_enabled") "true"}}checked{{end}}><span><strong>SMTP aktivieren</strong><small>Aktivieren, sobald die Verbindung vollständig konfiguriert ist.</small></span></label>
+        <div class="form-row"><label>Host<input name="smtp_host" value="{{index .Data "smtp_host"}}" placeholder="smtp.example.com" autocomplete="off"></label><label>Port<input type="number" min="1" max="65535" name="smtp_port" value="{{index .Data "smtp_port"}}" required autocomplete="off"></label></div>
+        <div class="form-row"><label>Sicherheit<select name="smtp_security"><option value="starttls" {{if eq (index .Data "smtp_security") "starttls"}}selected{{end}}>STARTTLS</option><option value="tls" {{if eq (index .Data "smtp_security") "tls"}}selected{{end}}>TLS</option><option value="none" {{if eq (index .Data "smtp_security") "none"}}selected{{end}}>Keine</option></select></label><label>Benutzername<input name="smtp_username" autocomplete="off" value="{{index .Data "smtp_username"}}"></label></div>
+        <div class="form-row"><label>Passwort<input type="password" name="smtp_password" autocomplete="new-password" placeholder="{{if eq (index .Data "smtp_password_set") "true"}}Gespeichert – leer lassen zum Beibehalten{{else}}SMTP-Passwort{{end}}"><small>Wird verschlüsselt gespeichert und nie wieder angezeigt.</small></label><label class="toggle-row compact"><input type="checkbox" name="smtp_password_clear" value="true"><span><strong>Gespeichertes Passwort entfernen</strong></span></label></div>
+        <div class="form-row"><label>Absendername<input name="smtp_from_name" value="{{index .Data "smtp_from_name"}}" placeholder="ZentCal" autocomplete="off"></label><label>Absender-E-Mail<input type="email" name="smtp_from_email" value="{{index .Data "smtp_from_email"}}" placeholder="calendar@example.com" autocomplete="off"></label></div>
+        <label>Testmail an<input type="email" name="smtp_test_recipient" value="{{.User.Email}}" autocomplete="off"></label><div class="form-error" data-form-error></div>
+        <div class="settings-actions split-actions"><button class="btn secondary" type="submit" formaction="/ui/settings/smtp/test" data-loading-text="Sende Testmail…">Testmail senden</button><button class="btn primary" type="submit" data-loading-text="Speichern…">Speichern</button></div>
+      </form>
+    </section>
+
+    <section class="panel" id="sso"><div class="panel-head"><div><h2>Single Sign-On / OIDC</h2></div></div>
+      <form data-ajax action="/ui/settings" method="post" class="stack settings-form" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="section" value="oidc">
+        <label class="toggle-row"><input type="checkbox" name="oidc_enabled" value="true" {{if eq (index .Data "oidc_enabled") "true"}}checked{{end}}><span><strong>OIDC aktivieren</strong><small>Die Konfiguration wird beim Speichern per Discovery geprüft.</small></span></label>
+        <div class="form-row"><label>Issuer URL<input type="url" name="oidc_issuer" value="{{index .Data "oidc_issuer"}}" placeholder="https://sso.example.com/application/o/zentcal/" autocomplete="off"></label><label>Client ID<input name="oidc_client_id" value="{{index .Data "oidc_client_id"}}" autocomplete="off"></label></div>
+        <div class="form-row"><label>Client Secret<input type="password" name="oidc_client_secret" autocomplete="new-password" placeholder="{{if eq (index .Data "oidc_client_secret_set") "true"}}Gespeichert – leer lassen zum Beibehalten{{else}}OIDC Client Secret{{end}}"><small>Verschlüsselt gespeichert.</small></label><label>Token-Endpoint Auth<select name="oidc_auth_method"><option value="client_secret_post" {{if eq (index .Data "oidc_auth_method") "client_secret_post"}}selected{{end}}>client_secret_post</option><option value="client_secret_basic" {{if eq (index .Data "oidc_auth_method") "client_secret_basic"}}selected{{end}}>client_secret_basic</option></select></label></div>
+        <label class="toggle-row"><input type="checkbox" name="oidc_client_secret_clear" value="true"><span><strong>Gespeichertes Client Secret entfernen</strong></span></label>
+        <div class="form-row"><label>Scopes<input name="oidc_scopes" value="{{index .Data "oidc_scopes"}}" autocomplete="off"><small>Mindestens openid; empfohlen: openid profile email.</small></label><label>Gruppen-Claim<input name="oidc_groups_claim" value="{{index .Data "oidc_groups_claim"}}" placeholder="groups" autocomplete="off"></label></div>
+        <label>Gruppen-Mapping<textarea name="oidc_group_mapping" rows="4" placeholder="calendar-admins=administrator&#10;employees=user" autocomplete="off">{{index .Data "oidc_group_mapping"}}</textarea><small>Eine Zuordnung pro Zeile: Provider-Gruppe=administrator oder user.</small></label>
+        <div class="toggle-grid"><label class="toggle-row"><input type="checkbox" name="oidc_auto_provision" value="true" {{if eq (index .Data "oidc_auto_provision") "true"}}checked{{end}}><span><strong>Auto-Provisioning</strong><small>Neue SSO-Benutzer ausschließlich über den direkten SSO-Login automatisch anlegen.</small></span></label><label class="toggle-row"><input type="checkbox" name="oidc_sync_name" value="true" {{if eq (index .Data "oidc_sync_name") "true"}}checked{{end}}><span><strong>Name bei Auto-Provisioning übernehmen</strong><small>Vor- und Nachname nur beim erstmaligen Anlegen eines SSO-Benutzers übernehmen. Bestehende Konten bleiben unverändert.</small></span></label><label class="toggle-row"><input type="checkbox" name="oidc_sync_email" value="true" {{if eq (index .Data "oidc_sync_email") "true"}}checked{{end}}><span><strong>E-Mail synchronisieren</strong></span></label><label class="toggle-row"><input type="checkbox" name="oidc_sync_groups" value="true" {{if eq (index .Data "oidc_sync_groups") "true"}}checked{{end}}><span><strong>Gruppen/Rollen synchronisieren</strong></span></label></div>
+        <label class="toggle-row"><input type="checkbox" name="oidc_local_login" value="true" {{if eq (index .Data "oidc_local_login") "true"}}checked{{end}}><span><strong>Lokalen Login erlauben</strong><small>Deaktivieren erst, nachdem mit dieser Konfiguration mindestens eine echte SSO-Anmeldung erfolgreich war. ZentCal verhindert sonst das Abschalten.</small></span></label>
+        <div class="settings-callout"><div><strong>Redirect URI</strong><small>Diese URI exakt beim Identity Provider als OIDC Redirect/Callback URI hinterlegen.</small></div><div class="copy-line"><code>{{index .Data "oidc_redirect_uri"}}</code><button class="btn secondary small" type="button" data-copy="{{index .Data "oidc_redirect_uri"}}">Kopieren</button></div></div>
+        {{with index .Data "oidc_login_url"}}<div class="settings-callout"><div><strong>Direkter SSO-Login</strong><small>Startet unmittelbar die Anmeldung über den konfigurierten Identity Provider. Neue Konten werden hier nur bei aktiviertem Auto-Provisioning angelegt.</small></div><div class="copy-line"><code>{{.}}</code><button class="btn secondary small" type="button" data-copy="{{.}}">Kopieren</button><a class="btn primary small" href="{{.}}">SSO-Login starten</a></div></div>{{end}}
+        <div class="form-error" data-form-error></div><div class="settings-actions split-actions"><button class="btn secondary" type="submit" formaction="/ui/settings/oidc/test" data-loading-text="Prüfe…">Provider testen</button><button class="btn primary" type="submit" data-loading-text="Speichern…">Speichern</button></div>
+      </form>
+    </section>
+  </div>
+</div>
+
+<div class="modal" id="mail-templates-modal" hidden>
+  <div class="modal-backdrop"></div>
+  <div class="modal-card mail-template-modal-card">
+    <form data-ajax action="/ui/settings" method="post" class="mail-template-form" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="section" value="mail_templates">
+      <div class="modal-head mail-template-modal-head"><div><h2>E-Mail-Vorlagen</h2><p class="muted">Textvorlagen plus optionales gemeinsames HTML-Layout. Die ZentCal-URL wird automatisch mitgesendet.</p></div><button class="icon-btn" type="button" data-modal-close aria-label="Schließen">×</button></div>
+      <div class="mail-template-layout">
+        <nav class="mail-template-nav" aria-label="E-Mail-Vorlagen">
+          <button type="button" class="active" data-mail-template-tab="calendar_shared">Kalender freigegeben</button>
+          <button type="button" data-mail-template-tab="event_invite">Termineinladung</button>
+          <button type="button" data-mail-template-tab="event_update">Termin aktualisiert</button>
+          <button type="button" data-mail-template-tab="event_cancel">Termin abgesagt</button>
+          <button type="button" data-mail-template-tab="account_created">Benutzerkonto erstellt</button>
+          <button type="button" data-mail-template-tab="password_reset">Passwort zurückgesetzt</button>
+          <button type="button" data-mail-template-tab="sso_unlinked">SSO-Verbindung getrennt</button>
+          <button type="button" data-mail-template-tab="html_layout">HTML-Layout</button>
+        </nav>
+        <div class="mail-template-editor-scroll">
+          <div class="mail-template-panel active" data-mail-template-panel="calendar_shared">
+            <div class="mail-template-panel-head"><h3>Kalender freigegeben</h3><small>Platzhalter: <code>{{"{{instance_name}}"}}</code> <code>{{"{{zentcal_url}}"}}</code> <code>{{"{{user_name}}"}}</code> <code>{{"{{inviter_name}}"}}</code> <code>{{"{{calendar_name}}"}}</code> <code>{{"{{role}}"}}</code></small></div>
+            <div class="mail-template-language-grid"><div class="mail-template-language"><h4>Deutsch</h4><label>Betreff<input name="mail_calendar_shared_subject_de" value="{{index .Data "mail_calendar_shared_subject_de"}}" autocomplete="off"></label><label>Inhalt<textarea name="mail_calendar_shared_body_de" rows="11" autocomplete="off">{{index .Data "mail_calendar_shared_body_de"}}</textarea></label></div><div class="mail-template-language"><h4>English</h4><label>Subject<input name="mail_calendar_shared_subject_en" value="{{index .Data "mail_calendar_shared_subject_en"}}" autocomplete="off"></label><label>Content<textarea name="mail_calendar_shared_body_en" rows="11" autocomplete="off">{{index .Data "mail_calendar_shared_body_en"}}</textarea></label></div></div>
+          </div>
+          <div class="mail-template-panel" data-mail-template-panel="event_invite" hidden>
+            <div class="mail-template-panel-head"><h3>Termineinladung</h3><small>Platzhalter: <code>{{"{{instance_name}}"}}</code> <code>{{"{{zentcal_url}}"}}</code> <code>{{"{{organizer_name}}"}}</code> <code>{{"{{event_title}}"}}</code> <code>{{"{{event_start}}"}}</code> <code>{{"{{event_end_line}}"}}</code> <code>{{"{{event_location_line}}"}}</code> <code>{{"{{event_description_line}}"}}</code>. Antwort-Buttons bleiben automatisch erhalten.</small></div>
+            <div class="mail-template-language-grid"><div class="mail-template-language"><h4>Deutsch</h4><label>Betreff<input name="mail_event_invite_subject_de" value="{{index .Data "mail_event_invite_subject_de"}}" autocomplete="off"></label><label>Inhalt<textarea name="mail_event_invite_body_de" rows="11" autocomplete="off">{{index .Data "mail_event_invite_body_de"}}</textarea></label></div><div class="mail-template-language"><h4>English</h4><label>Subject<input name="mail_event_invite_subject_en" value="{{index .Data "mail_event_invite_subject_en"}}" autocomplete="off"></label><label>Content<textarea name="mail_event_invite_body_en" rows="11" autocomplete="off">{{index .Data "mail_event_invite_body_en"}}</textarea></label></div></div>
+          </div>
+          <div class="mail-template-panel" data-mail-template-panel="event_update" hidden>
+            <div class="mail-template-panel-head"><h3>Termin aktualisiert</h3><small>Es gelten die Termin-Platzhalter der Einladung.</small></div>
+            <div class="mail-template-language-grid"><div class="mail-template-language"><h4>Deutsch</h4><label>Betreff<input name="mail_event_update_subject_de" value="{{index .Data "mail_event_update_subject_de"}}" autocomplete="off"></label><label>Inhalt<textarea name="mail_event_update_body_de" rows="11" autocomplete="off">{{index .Data "mail_event_update_body_de"}}</textarea></label></div><div class="mail-template-language"><h4>English</h4><label>Subject<input name="mail_event_update_subject_en" value="{{index .Data "mail_event_update_subject_en"}}" autocomplete="off"></label><label>Content<textarea name="mail_event_update_body_en" rows="11" autocomplete="off">{{index .Data "mail_event_update_body_en"}}</textarea></label></div></div>
+          </div>
+          <div class="mail-template-panel" data-mail-template-panel="event_cancel" hidden>
+            <div class="mail-template-panel-head"><h3>Termin abgesagt</h3><small>Es gelten die Termin-Platzhalter der Einladung.</small></div>
+            <div class="mail-template-language-grid"><div class="mail-template-language"><h4>Deutsch</h4><label>Betreff<input name="mail_event_cancel_subject_de" value="{{index .Data "mail_event_cancel_subject_de"}}" autocomplete="off"></label><label>Inhalt<textarea name="mail_event_cancel_body_de" rows="11" autocomplete="off">{{index .Data "mail_event_cancel_body_de"}}</textarea></label></div><div class="mail-template-language"><h4>English</h4><label>Subject<input name="mail_event_cancel_subject_en" value="{{index .Data "mail_event_cancel_subject_en"}}" autocomplete="off"></label><label>Content<textarea name="mail_event_cancel_body_en" rows="11" autocomplete="off">{{index .Data "mail_event_cancel_body_en"}}</textarea></label></div></div>
+          </div>
+          <div class="mail-template-panel" data-mail-template-panel="account_created" hidden>
+            <div class="mail-template-panel-head"><h3>Benutzerkonto erstellt</h3><small>Platzhalter: <code>{{"{{instance_name}}"}}</code> <code>{{"{{zentcal_url}}"}}</code> <code>{{"{{user_name}}"}}</code> <code>{{"{{email}}"}}</code> <code>{{"{{temporary_password}}"}}</code></small></div>
+            <div class="mail-template-language-grid"><div class="mail-template-language"><h4>Deutsch</h4><label>Betreff<input name="mail_account_created_subject_de" value="{{index .Data "mail_account_created_subject_de"}}" autocomplete="off"></label><label>Inhalt<textarea name="mail_account_created_body_de" rows="11" autocomplete="off">{{index .Data "mail_account_created_body_de"}}</textarea></label></div><div class="mail-template-language"><h4>English</h4><label>Subject<input name="mail_account_created_subject_en" value="{{index .Data "mail_account_created_subject_en"}}" autocomplete="off"></label><label>Content<textarea name="mail_account_created_body_en" rows="11" autocomplete="off">{{index .Data "mail_account_created_body_en"}}</textarea></label></div></div>
+          </div>
+          <div class="mail-template-panel" data-mail-template-panel="password_reset" hidden>
+            <div class="mail-template-panel-head"><h3>Passwort zurückgesetzt</h3><small>Platzhalter: <code>{{"{{instance_name}}"}}</code> <code>{{"{{zentcal_url}}"}}</code> <code>{{"{{user_name}}"}}</code> <code>{{"{{temporary_password}}"}}</code></small></div>
+            <div class="mail-template-language-grid"><div class="mail-template-language"><h4>Deutsch</h4><label>Betreff<input name="mail_password_reset_subject_de" value="{{index .Data "mail_password_reset_subject_de"}}" autocomplete="off"></label><label>Inhalt<textarea name="mail_password_reset_body_de" rows="11" autocomplete="off">{{index .Data "mail_password_reset_body_de"}}</textarea></label></div><div class="mail-template-language"><h4>English</h4><label>Subject<input name="mail_password_reset_subject_en" value="{{index .Data "mail_password_reset_subject_en"}}" autocomplete="off"></label><label>Content<textarea name="mail_password_reset_body_en" rows="11" autocomplete="off">{{index .Data "mail_password_reset_body_en"}}</textarea></label></div></div>
+          </div>
+          <div class="mail-template-panel" data-mail-template-panel="sso_unlinked" hidden>
+            <div class="mail-template-panel-head"><h3>SSO-Verbindung getrennt</h3><small>Wird ausschließlich nach einer bewusst bestätigten SSO-Trennung versendet. Platzhalter: <code>{{"{{instance_name}}"}}</code> <code>{{"{{zentcal_url}}"}}</code> <code>{{"{{user_name}}"}}</code> <code>{{"{{email}}"}}</code> <code>{{"{{temporary_password}}"}}</code></small></div>
+            <div class="mail-template-language-grid"><div class="mail-template-language"><h4>Deutsch</h4><label>Betreff<input name="mail_sso_unlinked_subject_de" value="{{index .Data "mail_sso_unlinked_subject_de"}}" autocomplete="off"></label><label>Inhalt<textarea name="mail_sso_unlinked_body_de" rows="11" autocomplete="off">{{index .Data "mail_sso_unlinked_body_de"}}</textarea></label></div><div class="mail-template-language"><h4>English</h4><label>Subject<input name="mail_sso_unlinked_subject_en" value="{{index .Data "mail_sso_unlinked_subject_en"}}" autocomplete="off"></label><label>Content<textarea name="mail_sso_unlinked_body_en" rows="11" autocomplete="off">{{index .Data "mail_sso_unlinked_body_en"}}</textarea></label></div></div>
+          </div>
+          <div class="mail-template-panel" data-mail-template-panel="html_layout" hidden>
+            <div class="mail-template-panel-head"><h3>Optionales HTML-Layout</h3><small>Ist HTML aktiviert, wird zusätzlich zur Textversion eine HTML-Version versendet. Der Inhalt der ausgewählten E-Mail-Vorlage wird HTML-sicher escaped, Zeilenumbrüche werden automatisch zu <code>&lt;br&gt;</code> und an <code>{{"{{email_template}}"}}</code> eingesetzt. Zusätzlich verfügbar: <code>{{"{{instance_name}}"}}</code> und <code>{{"{{zentcal_url}}"}}</code>.</small></div>
+            <label class="toggle-row"><input type="checkbox" name="mail_html_enabled" value="true" {{if eq (index .Data "mail_html_enabled") "true"}}checked{{end}}><span><strong>HTML-Version zusätzlich versenden</strong><small>Text/plain wird immer mitgesendet; Termine behalten zusätzlich ihren text/calendar-Anhang.</small></span></label>
+            <label>HTML-Layout<textarea class="mail-html-layout-editor" name="mail_html_template" rows="22" spellcheck="false" autocomplete="off">{{index .Data "mail_html_template"}}</textarea><small>Pflichtplatzhalter bei aktiviertem HTML: <code>{{"{{email_template}}"}}</code></small></label>
+          </div>
+        </div>
+      </div>
+      <div class="mail-template-modal-actions"><div class="form-error" data-form-error></div><div><button class="btn secondary" type="button" data-modal-close>Abbrechen</button><button class="btn primary" type="submit" data-loading-text="Speichern…">Vorlagen speichern</button></div></div>
+    </form>
+  </div>
+</div>
+{{end}}

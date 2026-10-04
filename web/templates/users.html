@@ -1,0 +1,110 @@
+{{define "content"}}
+<div class="page-actions">
+  <p class="lead">Konten und Zugriffsstatus verwalten.</p>
+  <div class="inline-actions">
+    <input class="compact-search" type="search" placeholder="Benutzer suchen…" autocomplete="off" data-user-search>
+    <button class="btn secondary" data-modal-open="invite-user">Einladen</button>
+    <button class="btn primary" data-modal-open="create-user">Direkt erstellen</button>
+  </div>
+</div>
+<div class="panel">
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Benutzer</th><th>Rolle</th><th>Weitere Kalender</th>{{if .Data.OIDCEnabled}}<th>SSO</th>{{end}}<th>Status</th><th>Letzter Login</th><th>Letzter Sync</th></tr></thead>
+      <tbody id="users-body" data-sso-enabled="{{if .Data.OIDCEnabled}}true{{else}}false{{end}}">
+      {{range .Data.Users}}
+        <tr class="clickable-row" tabindex="0" role="button" aria-label="{{.Name}} bearbeiten"
+            data-edit-user data-user-id="{{.ID}}" data-user-name="{{.Name}}" data-user-first-name="{{.FirstName}}" data-user-last-name="{{.LastName}}" data-user-email="{{.Email}}"
+            data-user-role="{{.Role}}" data-user-status="{{.Status}}" data-user-auth-type="{{.AuthType}}" data-user-can-create-calendars="{{if .CanCreateCalendars}}true{{else}}false{{end}}" data-user-self="{{if eq .ID $.User.ID}}true{{else}}false{{end}}"
+            data-user-created="{{fmtTimeVTZ .CreatedAt $.User.Timezone}}" data-user-login="{{fmtTimeTZ .LastLogin $.User.Timezone}}" data-user-sync="{{fmtTimeTZ .LastSync $.User.Timezone}}">
+          <td><div class="user-cell"><span class="avatar">{{initial .Name}}</span><div><strong>{{.Name}}</strong><small>{{.Email}}</small></div></div></td>
+          <td>{{.Role}}</td>
+          <td>{{.AdditionalCalendars}}</td>
+          {{if $.Data.OIDCEnabled}}<td><span class="sso-status {{if eq .AuthType "oidc"}}yes{{else}}no{{end}}" title="{{if eq .AuthType "oidc"}}SSO verbunden{{else}}Nicht mit SSO verbunden{{end}}">{{if eq .AuthType "oidc"}}✓{{else}}×{{end}}</span></td>{{end}}
+          <td><span class="badge {{if eq .Status "active"}}success{{end}}">{{.Status}}</span></td>
+          <td>{{fmtTimeTZ .LastLogin $.User.Timezone}}</td>
+          <td>{{fmtTimeTZ .LastSync $.User.Timezone}}</td>
+        </tr>
+      {{else}}
+        <tr><td colspan="{{if .Data.OIDCEnabled}}7{{else}}6{{end}}" class="empty-cell">Noch keine Benutzer vorhanden.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </div>
+</div>
+<div data-reset-user-id="{{.Data.ResetUserID}}" hidden></div>
+
+<div class="modal" id="edit-user" hidden>
+  <div class="modal-backdrop" data-modal-close></div>
+  <div class="modal-card">
+    <div class="modal-head"><h2>Benutzer bearbeiten</h2><button class="icon-btn" data-modal-close>×</button></div>
+    <form data-ajax action="/ui/users/" method="post" class="stack" id="edit-user-form" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="form-row"><label>Vorname<input name="first_name" required autocomplete="off"></label><label>Nachname<input name="last_name" autocomplete="off"></label></div>
+      <label>E-Mail<input type="email" name="email" required autocomplete="off"></label>
+      <div class="form-row">
+        <label>Systemrolle
+          <select name="role"><option value="user">User</option><option value="administrator">Administrator</option><option value="owner">Owner</option></select>
+        </label>
+        <label>Status
+          <select name="status"><option value="active">Active</option><option value="disabled">Disabled</option><option value="locked">Locked</option></select>
+        </label>
+      </div>
+      <label class="toggle-row"><input type="checkbox" name="can_create_calendars" value="true"><span><strong>Eigene Kalender erstellen</strong><small>Erlaubt diesem Benutzer, zusätzliche Kalender selbst anzulegen.</small></span></label>
+      <input type="hidden" name="role" value="owner" data-owner-role disabled>
+      <input type="hidden" name="status" value="active" data-owner-status disabled>
+      <div class="note compact" data-owner-note hidden>Der Owner kann hier nicht herabgestuft, deaktiviert oder gesperrt werden.</div>
+      <div class="kv compact"><span>Erstellt</span><span data-user-meta="created">–</span><span>Letzter Login</span><span data-user-meta="login">–</span><span>Letzter Sync</span><span data-user-meta="sync">–</span></div>
+      <div class="form-error" data-form-error></div>
+      <div class="modal-actions split-actions"><button type="button" class="btn danger" data-user-delete-open>Benutzer löschen</button><button type="button" class="btn danger" data-user-reset-open hidden>Passwort zurücksetzen</button><span class="grow"></span><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn primary" data-loading-text="Speichern…">Speichern</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="reset-user-password" hidden>
+  <div class="modal-backdrop" data-modal-close></div>
+  <div class="modal-card">
+    <div class="modal-head"><h2>Passwort zurücksetzen</h2><button class="icon-btn" data-modal-close>×</button></div>
+    <form data-ajax action="/ui/users/" method="post" class="stack" id="reset-user-password-form" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{.CSRF}}"><input type="hidden" name="confirm" value="yes">
+      <div class="member-summary"><strong data-reset-user-name></strong><small data-reset-user-email></small></div>
+      <div class="alert warning">Das aktuelle lokale Passwort des Benutzers wird ungültig. Beim nächsten Login muss das temporäre Passwort geändert werden.</div>
+      {{if .Data.AdminSSO}}
+      <div class="note compact">Vor dem Zurücksetzen wird deine Administrator-Anmeldung bei Bedarf erneut über SSO bestätigt.</div>
+      {{else}}
+      <label>Dein Administrator-Passwort<input type="password" name="admin_password" required autocomplete="current-password"></label>
+      {{end}}
+      <div class="form-error" data-form-error></div>
+      <div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn danger" data-loading-text="Zurücksetzen…">Ja, Passwort zurücksetzen</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="delete-user" hidden>
+  <div class="modal-backdrop"></div>
+  <div class="modal-card">
+    <div class="modal-head"><h2>Benutzer löschen</h2><button class="icon-btn" type="button" data-modal-close>×</button></div>
+    <form data-ajax action="/ui/users/" method="post" class="stack" id="delete-user-form" autocomplete="off">
+      <input type="hidden" name="csrf" value="{{.CSRF}}">
+      <div class="member-summary"><strong data-delete-user-name></strong><small data-delete-user-email></small></div>
+      <div class="alert danger">Persönlicher Kalender, Sitzungen, Tokens und persönliche Zugangsdaten dieses Benutzers werden endgültig entfernt.</div>
+      <div data-delete-owned-block hidden>
+        <p class="muted">Der Benutzer ist alleiniger Eigentümer folgender Kalender:</p>
+        <div class="delete-owned-list" data-delete-owned-list></div>
+        <div class="stack compact-stack">
+          <label class="choice-row"><input type="radio" name="calendar_action" value="transfer" checked><span><strong>Kalender übertragen</strong><small>Die Kalender bleiben erhalten und bekommen einen neuen Eigentümer.</small></span></label>
+          <label data-delete-new-owner>Neuer Eigentümer<select name="new_owner_id"></select></label>
+          <label class="choice-row danger-choice"><input type="radio" name="calendar_action" value="delete"><span><strong>Kalender ebenfalls löschen</strong><small>Diese Kalender werden zusammen mit dem Benutzer gelöscht.</small></span></label>
+        </div>
+      </div>
+      <div data-delete-simple-block class="note compact">Freigegebene Kalender bleiben erhalten. Die Mitgliedschaften dieses Benutzers werden entfernt.</div>
+      <div class="form-error" data-form-error></div>
+      <div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn danger" type="submit" data-loading-text="Lösche…">Benutzer endgültig löschen</button></div>
+    </form>
+  </div>
+</div>
+
+<div class="modal" id="create-user" hidden><div class="modal-backdrop" data-modal-close></div><div class="modal-card"><div class="modal-head"><h2>Benutzer erstellen</h2><button class="icon-btn" data-modal-close>×</button></div><form data-ajax action="/ui/users" method="post" class="stack" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><div class="form-row"><label>Vorname<input name="first_name" required autocomplete="off"></label><label>Nachname<input name="last_name" autocomplete="off"></label></div><label>E-Mail<input type="email" name="email" required autocomplete="off"></label><div class="note">{{.Data.ProvisioningNote}}</div><label>Systemrolle<select name="role"><option value="user">User</option><option value="administrator">Administrator</option></select></label><label class="toggle-row"><input type="checkbox" name="can_create_calendars" value="true" checked><span><strong>Eigene Kalender erstellen</strong><small>Erlaubt diesem Benutzer, zusätzliche Kalender selbst anzulegen.</small></span></label><div class="form-error" data-form-error></div><div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn primary" data-loading-text="Erstellen…">Erstellen</button></div></form></div></div>
+<div class="modal" id="invite-user" hidden><div class="modal-backdrop" data-modal-close></div><div class="modal-card"><div class="modal-head"><h2>Benutzer einladen</h2><button class="icon-btn" data-modal-close>×</button></div><form data-ajax action="/ui/invitations" method="post" class="stack" autocomplete="off"><input type="hidden" name="csrf" value="{{.CSRF}}"><div class="form-row"><label>Vorname<input name="first_name" autocomplete="off"></label><label>Nachname<input name="last_name" autocomplete="off"></label></div><label>E-Mail<input type="email" name="email" required autocomplete="off"></label><label>Systemrolle<select name="role"><option value="user">User</option><option value="administrator">Administrator</option></select></label><label class="toggle-row"><input type="checkbox" name="can_create_calendars" value="true" checked><span><strong>Eigene Kalender erstellen</strong><small>Gilt nach Annahme der Einladung für das neue Benutzerkonto.</small></span></label><div class="form-error" data-form-error></div><div class="modal-actions"><button type="button" class="btn secondary" data-modal-close>Abbrechen</button><button class="btn primary" data-loading-text="Erstellen…">Einladungslink erstellen</button></div></form></div></div>
+<script src="/static/js/admin_search.js" defer></script>
+{{end}}

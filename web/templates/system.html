@@ -1,0 +1,21 @@
+{{define "content"}}
+<div class="stats-grid">
+  <div class="stat status-ok"><span>CalDAV</span><strong>Ready</strong></div>
+  <div class="stat"><span>Uptime</span><strong>{{.Data.Uptime}}</strong></div>
+</div>
+<div class="stats-grid">
+  <div class="stat"><span>Benutzer</span><strong>{{.Data.Users}}</strong></div>
+  <div class="stat"><span>Kalender</span><strong>{{.Data.Calendars}}</strong></div>
+  <div class="stat"><span>Events</span><strong>{{.Data.Events}}</strong></div>
+  <div class="stat"><span>Aktive Sessions</span><strong>{{.Data.Sessions}}</strong></div>
+</div>
+<section class="panel narrow">
+  <div class="panel-head"><div><h2>Systeminformationen</h2><p>Laufzeit- und Datenbankinformationen der aktuellen Instanz.</p></div></div>
+  <div class="kv">
+    <span>ZentCal</span><code>{{.Data.Version}}</code>
+    <span>Datenbankgröße</span><code>{{.Data.DBSize}}</code>
+    <span>Zeitzone</span><code>{{.Data.Timezone}}</code>
+    <span>Serverzeit</span><code>{{.Data.ServerTime}}</code>
+  </div>
+</section>
+{{end}}
