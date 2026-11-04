@@ -51,15 +51,25 @@ type Event struct {
 }
 
 func (s *Service) ListCalendars(ctx context.Context, u auth.User) ([]Calendar, error) {
+	return s.listCalendars(ctx, u, false)
+}
+
+// ListDAVCalendars includes VTODO collections, which must not appear as event
+// calendars in the browser UI or its event-oriented APIs.
+func (s *Service) ListDAVCalendars(ctx context.Context, u auth.User) ([]Calendar, error) {
+	return s.listCalendars(ctx, u, true)
+}
+
+func (s *Service) listCalendars(ctx context.Context, u auth.User, includeTasks bool) ([]Calendar, error) {
 	rows, err := s.DB.Query(ctx, `SELECT c.id::text,c.name,c.description,c.color,c.type,c.mode,m.dav_name,c.calendar_timezone,m.role,coalesce(c.system_kind,''),coalesce(c.system_owner_user_id::text,''),
  coalesce(mc.members,0),coalesce(ec.events,0),c.created_at,c.updated_at
  FROM memberships m
  JOIN calendars c ON c.id=m.calendar_id
  LEFT JOIN (SELECT calendar_id,count(*)::int AS members FROM memberships GROUP BY calendar_id) mc ON mc.calendar_id=c.id
  LEFT JOIN (SELECT calendar_id,count(*)::int AS events FROM events GROUP BY calendar_id) ec ON ec.calendar_id=c.id
- WHERE m.user_id=$1 AND c.deleted_at IS NULL
-   AND (coalesce(c.system_kind,'')='' OR (c.system_kind='personal' AND c.system_owner_user_id=$1))
- ORDER BY CASE WHEN c.system_kind='personal' THEN 0 ELSE 1 END, lower(c.name)`, u.ID)
+ WHERE m.user_id=$1 AND c.deleted_at IS NULL AND ($2 OR c.type<>'tasks')
+   AND (coalesce(c.system_kind,'')='' OR (c.system_kind IN ('personal','reminders') AND c.system_owner_user_id=$1))
+ ORDER BY CASE WHEN c.system_kind='personal' THEN 0 ELSE 1 END, lower(c.name)`, u.ID, includeTasks)
 	if err != nil {
 		return nil, err
 	}
@@ -171,7 +181,7 @@ func (s *Service) getCalendar(ctx context.Context, u auth.User, id string, admin
  LEFT JOIN memberships m ON m.calendar_id=c.id AND m.user_id=$2
  WHERE c.id=$1 AND c.deleted_at IS NULL
    AND (
-     (NOT $3 AND m.user_id IS NOT NULL AND (coalesce(c.system_kind,'')='' OR (c.system_kind='personal' AND c.system_owner_user_id=$2)))
+     (NOT $3 AND m.user_id IS NOT NULL AND (coalesce(c.system_kind,'')='' OR (c.system_kind IN ('personal','reminders') AND c.system_owner_user_id=$2)))
      OR ($3 AND c.admin_managed AND c.admin_manager_user_id=$2 AND coalesce(c.system_kind,'')='')
    )`, id, u.ID, administrative && auth.IsAdmin(u)).Scan(
 		&c.ID, &c.Name, &c.Description, &c.Color, &c.Type, &c.Mode, &c.DAVName, &c.CalendarTimezone, &c.Role, &c.SystemKind, &c.SystemOwnerUserID,
@@ -342,6 +352,14 @@ func (s *Service) GetCalendarByDAVName(ctx context.Context, u auth.User, davName
 }
 
 func (s *Service) CreateDAVCalendar(ctx context.Context, r *http.Request, u auth.User, davName, name, desc, color, timezone string) (Calendar, error) {
+	return s.createDAVCollection(ctx, r, u, davName, name, desc, color, timezone, "calendar")
+}
+
+func (s *Service) CreateDAVTaskList(ctx context.Context, r *http.Request, u auth.User, davName, name, desc, color, timezone string) (Calendar, error) {
+	return s.createDAVCollection(ctx, r, u, davName, name, desc, color, timezone, "tasks")
+}
+
+func (s *Service) createDAVCollection(ctx context.Context, r *http.Request, u auth.User, davName, name, desc, color, timezone, kind string) (Calendar, error) {
 	allowed, err := s.CanCreateCalendars(ctx, u.ID)
 	if err != nil {
 		return Calendar{}, err
@@ -379,7 +397,7 @@ func (s *Service) CreateDAVCalendar(ctx context.Context, r *http.Request, u auth
 		return Calendar{}, err
 	}
 	defer tx.Rollback(ctx)
-	if _, err = tx.Exec(ctx, `INSERT INTO calendars(id,name,description,color,type,mode,created_by,dav_name,calendar_timezone) VALUES($1,$2,$3,$4,'calendar','normal',$5,$6,$7)`, id, name, desc, color, u.ID, davName, timezone); err != nil {
+	if _, err = tx.Exec(ctx, `INSERT INTO calendars(id,name,description,color,type,mode,created_by,dav_name,calendar_timezone) VALUES($1,$2,$3,$4,$8,'normal',$5,$6,$7)`, id, name, desc, color, u.ID, davName, timezone, kind); err != nil {
 		return Calendar{}, err
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO memberships(calendar_id,user_id,role,dav_name) VALUES($1,$2,'owner',$3)`, id, u.ID, davName); err != nil {
@@ -388,7 +406,7 @@ func (s *Service) CreateDAVCalendar(ctx context.Context, r *http.Request, u auth
 	if err = tx.Commit(ctx); err != nil {
 		return Calendar{}, err
 	}
-	details := map[string]any{"name": name, "description": desc, "color": color, "type": "calendar", "mode": "normal", "source": "caldav"}
+	details := map[string]any{"name": name, "description": desc, "color": color, "type": kind, "mode": "normal", "source": "caldav"}
 	s.Audit.Write(ctx, r, u.ID, "calendar.created", "calendar", id, details)
 	s.Webhooks.Emit(ctx, "calendar.created", u.ID, "calendar", id, details)
 	return s.GetCalendar(ctx, u, id)
@@ -649,6 +667,9 @@ func (s *Service) PutEvent(ctx context.Context, r *http.Request, u auth.User, ca
 	if err != nil {
 		return Event{}, false, errors.New("Kalender wurde nicht gefunden.")
 	}
+	if cal.Type == "tasks" {
+		return Event{}, false, errors.New("Erinnerungslisten akzeptieren nur VTODO-Ressourcen.")
+	}
 	m, err := ical.Parse(raw)
 	if err != nil {
 		return Event{}, false, err
@@ -837,7 +858,7 @@ func (s *Service) DeleteEvent(ctx context.Context, r *http.Request, u auth.User,
 	if !canEditEvent(role, cal.Mode, createdBy, u.ID) {
 		return errors.New("Du darfst in diesem Kalender nur eigene Termine löschen.")
 	}
-	if s.Scheduling != nil {
+	if s.Scheduling != nil && cal.Type != "tasks" {
 		if schedErr := s.Scheduling.CancelEvent(ctx, r, u, id, raw); schedErr != nil {
 			s.Audit.Write(ctx, r, u.ID, "event.scheduling_failed", "event", id, map[string]any{"error": schedErr.Error()})
 		}

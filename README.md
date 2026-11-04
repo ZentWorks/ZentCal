@@ -11,9 +11,10 @@ ZentCal combines CalDAV with a clean web interface for users, sharing, invitatio
 ## Features
 
 - Personal, shared and centrally managed calendars
+- CalDAV task lists and reminders (VTODO), including completed, recurring and undated tasks, compatible with clients supporting CalDAV tasks
 - Owner, contributor and viewer roles
 - Normal and personal calendar modes — use Normal for a team calendar where members can work on shared events, or Personal when users should only manage the events they created themselves, for example a family or availability calendar.
-- CalDAV support for Apple Calendar and other compatible clients
+- CalDAV support for Apple Calendar and other compatible clients; task synchronization for Apple Reminders, Thunderbird and DAVx5-compatible task apps
 - App passwords for calendar clients
 - Internal and external event invitations with RSVP handling
 - SMTP notifications and customizable email templates

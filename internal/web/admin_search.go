@@ -49,7 +49,7 @@ FROM users u
 LEFT JOIN (
   SELECT m.user_id,count(*)::int AS additional_calendars
   FROM memberships m JOIN calendars c ON c.id=m.calendar_id
-  WHERE c.deleted_at IS NULL AND coalesce(c.system_kind,'')=''
+  WHERE c.deleted_at IS NULL AND c.type<>'tasks' AND coalesce(c.system_kind,'')=''
   GROUP BY m.user_id
 ) ac ON ac.user_id=u.id
 WHERE $1='' OR u.name ILIKE '%'||$1||'%' OR u.email ILIKE '%'||$1||'%' OR u.first_name ILIKE '%'||$1||'%' OR u.last_name ILIKE '%'||$1||'%'
@@ -90,7 +90,7 @@ func (h *Handler) adminCalendarsSearch(w http.ResponseWriter, r *http.Request) {
 	for _, c := range items {
 		out = append(out, map[string]any{
 			"id": c.ID, "name": c.Name, "description": c.Description, "color": c.Color, "type": c.Type,
-			"access": c.Access, "owner_names": c.OwnerNames, "mode": c.Mode, "members": c.Members, "events": c.Events, "can_read_events": c.CanReadEvents, "needs_owner": c.NeedsOwner, "admin_manager_visible": c.AdminManagerVisible,
+			"access": c.Access, "owner_names": c.OwnerNames, "mode": c.Mode, "members": c.Members, "events": c.Events, "can_read_events": c.CanReadEvents,
 		})
 	}
 	httpx.JSON(w, 200, map[string]any{"ok": true, "data": out})
@@ -142,7 +142,7 @@ FROM users u
 LEFT JOIN (
   SELECT m.user_id,count(*)::int AS additional_calendars
   FROM memberships m JOIN calendars c ON c.id=m.calendar_id
-  WHERE c.deleted_at IS NULL AND coalesce(c.system_kind,'')=''
+  WHERE c.deleted_at IS NULL AND c.type<>'tasks' AND coalesce(c.system_kind,'')=''
   GROUP BY m.user_id
 ) ac ON ac.user_id=u.id
 WHERE $1='' OR u.name ILIKE '%'||$1||'%' OR u.email ILIKE '%'||$1||'%' OR u.first_name ILIKE '%'||$1||'%' OR u.last_name ILIKE '%'||$1||'%'

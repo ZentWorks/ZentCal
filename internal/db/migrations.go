@@ -365,7 +365,14 @@ CREATE INDEX IF NOT EXISTS scheduling_messages_event_idx ON scheduling_messages(
 CREATE INDEX IF NOT EXISTS event_versions_created_idx ON event_versions(created_at);
 CREATE INDEX IF NOT EXISTS login_attempts_last_failed_idx ON login_attempts(last_failed_at);
 CREATE INDEX IF NOT EXISTS password_reset_requests_last_requested_idx ON password_reset_requests(last_requested_at);`,
-	`DELETE FROM settings WHERE key='base_url';`,
+	// VTODO lives in dedicated CalDAV collections. Existing VEVENT calendars stay
+	// unchanged; the shared events/version/tombstone tables preserve backups.
+	`ALTER TABLE calendars DROP CONSTRAINT IF EXISTS calendars_type_check;
+ALTER TABLE calendars ADD CONSTRAINT calendars_type_check CHECK (type IN ('calendar','resource','tasks'));`,
+	// Recovery migration: the admin-managed calendar columns were used by the
+	// application before they were guaranteed to exist on a clean installation.
+	// Append instead of altering an existing migration version: deployed
+	// databases have already recorded earlier versions in schema_migrations.
 	`ALTER TABLE calendars ADD COLUMN IF NOT EXISTS admin_managed boolean NOT NULL DEFAULT false;
 ALTER TABLE calendars ADD COLUMN IF NOT EXISTS admin_manager_user_id uuid REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE calendars ADD COLUMN IF NOT EXISTS admin_manager_visible boolean NOT NULL DEFAULT false;

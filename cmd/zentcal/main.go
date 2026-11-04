@@ -29,7 +29,7 @@ import (
 	"github.com/zentworks/zentcal/internal/webhook"
 )
 
-const version = "0.1.34"
+const version = "0.1.39"
 
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
@@ -54,6 +54,7 @@ func main() {
 	defer pool.Close()
 	must(db.Migrate(ctx, pool))
 	must(db.EnsurePersonalCalendars(ctx, pool))
+	must(db.EnsureAllReminders(ctx, pool))
 	secretBox, err := security.LoadSecretBox(cfg.SettingsKeyFile)
 	must(err)
 	var tz string

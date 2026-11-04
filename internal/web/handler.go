@@ -472,7 +472,7 @@ func (h *Handler) dashboard(w http.ResponseWriter, r *http.Request) {
 	_ = h.DB.QueryRow(r.Context(), `SELECT count(*) FROM events e
 JOIN calendars c ON c.id=e.calendar_id
 JOIN memberships m ON m.calendar_id=c.id AND m.user_id=$1
-WHERE c.deleted_at IS NULL AND (coalesce(c.system_kind,'')='' OR (c.system_kind='personal' AND c.system_owner_user_id=$1))`, ss.User.ID).Scan(&e)
+WHERE c.deleted_at IS NULL AND c.type<>'tasks' AND (coalesce(c.system_kind,'')='' OR (c.system_kind='personal' AND c.system_owner_user_id=$1))`, ss.User.ID).Scan(&e)
 	_ = h.DB.QueryRow(r.Context(), `SELECT count(*) FROM event_attendees WHERE user_id=$1 AND partstat='NEEDS-ACTION'`, ss.User.ID).Scan(&pending)
 	if auth.IsAdmin(ss.User) {
 		_ = h.DB.QueryRow(r.Context(), `SELECT count(*) FROM users WHERE status='active'`).Scan(&users)
@@ -483,7 +483,7 @@ WHERE c.deleted_at IS NULL AND (coalesce(c.system_kind,'')='' OR (c.system_kind=
 FROM events e
 JOIN calendars c ON c.id=e.calendar_id
 JOIN memberships m ON m.calendar_id=c.id AND m.user_id=$1
-WHERE c.deleted_at IS NULL
+WHERE c.deleted_at IS NULL AND c.type<>'tasks'
   AND (coalesce(c.system_kind,'')='' OR (c.system_kind='personal' AND c.system_owner_user_id=$1))
   AND coalesce(e.dtend,e.dtstart,e.created_at) >= now()
 ORDER BY coalesce(e.dtstart,e.created_at), e.created_at

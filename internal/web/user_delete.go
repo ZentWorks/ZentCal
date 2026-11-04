@@ -17,7 +17,7 @@ func (h *Handler) exclusivelyOwnedCalendars(ctx context.Context, userID string) 
 	rows, err := h.DB.Query(ctx, `SELECT c.id::text,c.name
 FROM calendars c
 JOIN memberships m ON m.calendar_id=c.id AND m.user_id=$1 AND m.role='owner'
-WHERE c.deleted_at IS NULL AND coalesce(c.system_kind,'')='' AND NOT c.admin_managed
+WHERE c.deleted_at IS NULL AND coalesce(c.system_kind,'')=''
   AND NOT EXISTS (
     SELECT 1 FROM memberships other
     WHERE other.calendar_id=c.id AND other.user_id<>$1 AND other.role='owner'
@@ -165,7 +165,7 @@ func (h *Handler) deleteUserUI(w http.ResponseWriter, r *http.Request) {
 	}
 	// Serialize against member role changes. Re-evaluate sole ownership only
 	// after all calendars currently owned by the account are locked.
-	ownerRows, ownerErr := tx.Query(r.Context(), `SELECT c.id::text FROM calendars c JOIN memberships m ON m.calendar_id=c.id WHERE m.user_id=$1 AND m.role='owner' AND c.deleted_at IS NULL AND coalesce(c.system_kind,'')='' AND NOT c.admin_managed ORDER BY c.id::text`, id)
+	ownerRows, ownerErr := tx.Query(r.Context(), `SELECT c.id::text FROM calendars c JOIN memberships m ON m.calendar_id=c.id WHERE m.user_id=$1 AND m.role='owner' AND c.deleted_at IS NULL AND coalesce(c.system_kind,'')='' ORDER BY c.id::text`, id)
 	if ownerErr != nil {
 		httpx.Error(w, 500, "Kalenderbesitz konnte nicht geprüft werden.")
 		return
@@ -195,7 +195,7 @@ func (h *Handler) deleteUserUI(w http.ResponseWriter, r *http.Request) {
 	currentRows, currentErr := tx.Query(r.Context(), `SELECT c.id::text,c.name
 FROM calendars c
 JOIN memberships m ON m.calendar_id=c.id AND m.user_id=$1 AND m.role='owner'
-WHERE c.deleted_at IS NULL AND coalesce(c.system_kind,'')='' AND NOT c.admin_managed
+WHERE c.deleted_at IS NULL AND coalesce(c.system_kind,'')=''
   AND NOT EXISTS (SELECT 1 FROM memberships other WHERE other.calendar_id=c.id AND other.user_id<>$1 AND other.role='owner')
 ORDER BY lower(c.name),c.id::text`, id)
 	if currentErr != nil {
@@ -278,29 +278,20 @@ ON CONFLICT(calendar_id,user_id) DO UPDATE SET role='owner'`, cal.ID, newOwnerID
 	// Event versions and queued deliveries do not have cascading calendar
 	// foreign keys. Remove those copies before deleting the personal calendar
 	// so personal event content is not left behind.
-	if _, err = tx.Exec(r.Context(), `DELETE FROM event_versions WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind='personal')`, id); err != nil {
+	if _, err = tx.Exec(r.Context(), `DELETE FROM event_versions WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind IN ('personal','reminders'))`, id); err != nil {
 		httpx.Error(w, 500, "Persönliche Terminhistorie konnte nicht entfernt werden.")
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM scheduling_deliveries WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind='personal')`, id); err != nil {
+	if _, err = tx.Exec(r.Context(), `DELETE FROM scheduling_deliveries WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind IN ('personal','reminders'))`, id); err != nil {
 		httpx.Error(w, 500, "Persönliche Zustellungen konnten nicht entfernt werden.")
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM scheduling_messages WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind='personal')`, id); err != nil {
+	if _, err = tx.Exec(r.Context(), `DELETE FROM scheduling_messages WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind IN ('personal','reminders'))`, id); err != nil {
 		httpx.Error(w, 500, "Persönliche Scheduling-Nachrichten konnten nicht entfernt werden.")
 		return
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM calendars WHERE system_owner_user_id=$1 AND system_kind='personal'`, id); err != nil {
+	if _, err = tx.Exec(r.Context(), `DELETE FROM calendars WHERE system_owner_user_id=$1 AND system_kind IN ('personal','reminders')`, id); err != nil {
 		httpx.Error(w, 500, "Persönlicher Kalender konnte nicht entfernt werden.")
-		return
-	}
-	// Centrally managed calendars survive owner/manager deletion without exposing
-	// their contents to the acting admin. If the deleted account was the
-	// administrative manager, transfer only the administrative responsibility.
-	if _, err = tx.Exec(r.Context(), `UPDATE calendars
-SET admin_manager_user_id=$1,admin_manager_visible=false,created_by=CASE WHEN created_by=$2 THEN $1 ELSE created_by END,updated_at=now()
-WHERE admin_managed AND admin_manager_user_id=$2 AND deleted_at IS NULL`, ss.User.ID, id); err != nil {
-		httpx.Error(w, 500, "Administrative Kalenderverwaltung konnte nicht übertragen werden.")
 		return
 	}
 	// Remaining shared calendars stay intact. Reassign only the technical creator

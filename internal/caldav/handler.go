@@ -477,7 +477,11 @@ func (h *Handler) calendarHome(w http.ResponseWriter, r *http.Request, u auth.Us
 		writeDAVError(w, http.StatusBadRequest, "valid-xml")
 		return
 	}
-	cs, err := h.App.ListCalendars(r.Context(), u)
+	if _, err := db.EnsureReminders(r.Context(), h.App.DB, u.ID); err != nil {
+		writeDAVError(w, http.StatusInternalServerError, "server-error")
+		return
+	}
+	cs, err := h.App.ListDAVCalendars(r.Context(), u)
 	if err != nil {
 		writeDAVError(w, http.StatusInternalServerError, "server-error")
 		return
@@ -530,17 +534,22 @@ func (h *Handler) mkCalendar(w http.ResponseWriter, r *http.Request, u auth.User
 		writeDAVError(w, http.StatusBadRequest, "valid-xml")
 		return
 	}
-	for _, component := range props.Components {
-		if component != "" && !strings.EqualFold(component, "VEVENT") {
-			writeDAVError(w, http.StatusForbidden, "supported-calendar-component")
-			return
-		}
+	kind, err := collectionKind(props.Components)
+	if err != nil {
+		writeDAVError(w, http.StatusForbidden, "supported-calendar-component")
+		return
 	}
+
 	color := strings.TrimSpace(props.Color)
 	if len(color) == 9 && strings.HasPrefix(color, "#") {
 		color = color[:7]
 	}
-	c, err := h.App.CreateDAVCalendar(r.Context(), r, u, davName, props.DisplayName, props.Description, color, props.Timezone)
+	var c app.Calendar
+	if kind == "tasks" {
+		c, err = h.App.CreateDAVTaskList(r.Context(), r, u, davName, props.DisplayName, props.Description, color, props.Timezone)
+	} else {
+		c, err = h.App.CreateDAVCalendar(r.Context(), r, u, davName, props.DisplayName, props.Description, color, props.Timezone)
+	}
 	if err != nil {
 		if strings.Contains(strings.ToLower(err.Error()), "existiert") {
 			writeDAVError(w, http.StatusForbidden, "resource-must-be-null")
@@ -556,6 +565,32 @@ func (h *Handler) mkCalendar(w http.ResponseWriter, r *http.Request, u auth.User
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Location", calendarHref(u.ID, c))
 	w.WriteHeader(http.StatusCreated)
+}
+
+// Apple creates separate VEVENT and VTODO collections. Do not accept a mixed
+// collection that could expose tasks as calendar appointments.
+func collectionKind(components []string) (string, error) {
+	if len(components) == 0 {
+		return "calendar", nil
+	}
+	kind := ""
+	for _, component := range components {
+		switch strings.ToUpper(component) {
+		case "VEVENT":
+			if kind == "tasks" {
+				return "", errors.New("mixed calendar kinds")
+			}
+			kind = "calendar"
+		case "VTODO":
+			if kind == "calendar" {
+				return "", errors.New("mixed calendar kinds")
+			}
+			kind = "tasks"
+		default:
+			return "", errors.New("unsupported component")
+		}
+	}
+	return kind, nil
 }
 
 func parseMKCalendar(body []byte) (mkCalendarProperties, error) {
@@ -642,6 +677,16 @@ func (h *Handler) calendarCollection(w http.ResponseWriter, r *http.Request, u a
 		writeMulti(w, res, "")
 	case "REPORT":
 		h.report(w, r, u, c)
+	case http.MethodDelete:
+		if c.Type != "tasks" || c.SystemKind != "" || c.Role != "owner" {
+			writeDAVError(w, http.StatusForbidden, "need-privileges")
+			return
+		}
+		if err := h.App.DeleteCalendar(r.Context(), r, u, c.ID); err != nil {
+			writeDAVError(w, http.StatusForbidden, "need-privileges")
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	case "PROPPATCH":
 		h.calendarPropPatch(w, r, u, c)
 	case "ACL":
@@ -664,7 +709,7 @@ func calendarProps(u auth.User, c app.Calendar) []propValue {
 		pv(nsDAV, "supported-privilege-set", supportedPrivilegeSet()),
 		pv(nsDAV, "getlastmodified", `<d:getlastmodified>`+x(c.UpdatedAt.UTC().Format(http.TimeFormat))+`</d:getlastmodified>`),
 		calendarTimezoneProp(c.CalendarTimezone),
-		pv(nsCal, "supported-calendar-component-set", `<c:supported-calendar-component-set><c:comp name="VEVENT"/></c:supported-calendar-component-set>`),
+		pv(nsCal, "supported-calendar-component-set", `<c:supported-calendar-component-set><c:comp name="`+calendarComponent(c)+`"/></c:supported-calendar-component-set>`),
 		pv(nsCal, "supported-calendar-data", `<c:supported-calendar-data><c:calendar-data content-type="text/calendar" version="2.0"/></c:supported-calendar-data>`),
 		pv(nsCal, "max-resource-size", `<c:max-resource-size>10485760</c:max-resource-size>`),
 		pv(nsCal, "supported-collation-set", `<c:supported-collation-set><c:supported-collation>i;ascii-casemap</c:supported-collation><c:supported-collation>i;octet</c:supported-collation></c:supported-collation-set>`),
@@ -672,8 +717,15 @@ func calendarProps(u auth.User, c app.Calendar) []propValue {
 		pv(nsApple, "calendar-order", `<a:calendar-order>1</a:calendar-order>`),
 		pv(nsCS, "getctag", `<cs:getctag>`+x(syncToken(c.UpdatedAt))+`</cs:getctag>`),
 		pv(nsDAV, "sync-token", `<d:sync-token>`+x(syncToken(c.UpdatedAt))+`</d:sync-token>`),
-		pv(nsDAV, "supported-report-set", supportedReports(true)),
+		pv(nsDAV, "supported-report-set", supportedReports(true, c.Type != "tasks")),
 	}
+}
+
+func calendarComponent(c app.Calendar) string {
+	if c.Type == "tasks" {
+		return "VTODO"
+	}
+	return "VEVENT"
 }
 
 func calendarTimezoneProp(tz string) propValue {
@@ -856,14 +908,16 @@ func writeFreeBusy(w http.ResponseWriter, events []app.Event, start, end time.Ti
 	_, _ = io.WriteString(w, b.String())
 }
 
-func supportedReports(calendar bool) string {
+func supportedReports(calendar bool, includeFreeBusy ...bool) string {
 	reports := []string{`<d:supported-report><d:report><d:sync-collection/></d:report></d:supported-report>`}
 	if calendar {
 		reports = append(reports,
 			`<d:supported-report><d:report><c:calendar-query/></d:report></d:supported-report>`,
 			`<d:supported-report><d:report><c:calendar-multiget/></d:report></d:supported-report>`,
-			`<d:supported-report><d:report><c:free-busy-query/></d:report></d:supported-report>`,
 		)
+		if len(includeFreeBusy) == 0 || includeFreeBusy[0] {
+			reports = append(reports, `<d:supported-report><d:report><c:free-busy-query/></d:report></d:supported-report>`)
+		}
 	}
 	return `<d:supported-report-set>` + strings.Join(reports, "") + `</d:supported-report-set>`
 }
@@ -914,7 +968,13 @@ func (h *Handler) eventResource(w http.ResponseWriter, r *http.Request, u auth.U
 			writeDAVError(w, http.StatusBadRequest, "valid-calendar-data")
 			return
 		}
-		e, created, err := h.App.PutEvent(r.Context(), r, u, c.ID, href, string(b), r.Header.Get("If-Match"))
+		var e app.Event
+		var created bool
+		if c.Type == "tasks" {
+			e, created, err = h.App.PutTask(r.Context(), r, u, c.ID, href, string(b), r.Header.Get("If-Match"))
+		} else {
+			e, created, err = h.App.PutEvent(r.Context(), r, u, c.ID, href, string(b), r.Header.Get("If-Match"))
+		}
 		if err != nil {
 			status := http.StatusForbidden
 			precondition := "valid-calendar-object-resource"
@@ -1001,7 +1061,7 @@ func eventPropertyValues(u auth.User, c app.Calendar, e app.Event, withData bool
 		pv(nsDAV, "current-user-privilege-set", privilegeSet(c.Role)),
 		pv(nsDAV, "acl", aclProperty(u.ID, c.Role)),
 		pv(nsDAV, "supported-privilege-set", supportedPrivilegeSet()),
-		pv(nsDAV, "supported-report-set", supportedReports(true)),
+		pv(nsDAV, "supported-report-set", supportedReports(true, c.Type != "tasks")),
 	}
 	if withData {
 		props = append(props, pv(nsCal, "calendar-data", `<c:calendar-data content-type="text/calendar" version="2.0">`+x(e.ICS)+`</c:calendar-data>`))
@@ -1030,6 +1090,10 @@ func (h *Handler) report(w http.ResponseWriter, r *http.Request, u auth.User, c 
 		writeDAVError(w, http.StatusInternalServerError, "server-error")
 		return
 	}
+	if reportName == "free-busy-query" && c.Type == "tasks" {
+		writeDAVError(w, http.StatusForbidden, "supported-report")
+		return
+	}
 	if reportName == "free-busy-query" {
 		start, end, ok := extractTimeRange(body)
 		if !ok || start.IsZero() || end.IsZero() {
@@ -1040,6 +1104,10 @@ func (h *Handler) report(w http.ResponseWriter, r *http.Request, u auth.User, c 
 		return
 	}
 
+	if reportName == "calendar-query" && !reportMatchesCollection(body, calendarComponent(c)) {
+		writeMulti(w, nil, "")
+		return
+	}
 	wanted := extractHrefs(body)
 	start, end, hasRange := extractTimeRange(body)
 	base := calendarHref(u.ID, c)
@@ -1089,6 +1157,27 @@ func (h *Handler) report(w http.ResponseWriter, r *http.Request, u auth.User, c 
 		}
 	}
 	writeMulti(w, res, token)
+}
+
+// A calendar-query explicitly targeting VEVENT must not return VTODO
+// resources (and vice versa). Empty filters match the collection itself.
+func reportMatchesCollection(body []byte, component string) bool {
+	dec := xml.NewDecoder(bytes.NewReader(body))
+	for {
+		token, err := dec.Token()
+		if err != nil {
+			return true
+		}
+		start, ok := token.(xml.StartElement)
+		if !ok || start.Name.Space != nsCal || start.Name.Local != "comp-filter" {
+			continue
+		}
+		for _, attr := range start.Attr {
+			if attr.Name.Local == "name" && (strings.EqualFold(attr.Value, "VEVENT") || strings.EqualFold(attr.Value, "VTODO")) {
+				return strings.EqualFold(attr.Value, component)
+			}
+		}
+	}
 }
 
 func hrefWanted(wanted map[string]bool, full, href string) bool {

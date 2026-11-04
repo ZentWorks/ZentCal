@@ -403,3 +403,48 @@ func TestCalendarHrefUsesDAVCollectionName(t *testing.T) {
 		t.Fatalf("href=%q want=%q", got, want)
 	}
 }
+
+func TestVTODOCollectionAdvertisesOnlyTasks(t *testing.T) {
+	u := auth.User{ID: "11111111-1111-1111-1111-111111111111"}
+	c := app.Calendar{ID: "22222222-2222-2222-2222-222222222222", DAVName: "reminders", Name: "Erinnerungen", Color: "#e39d42", Type: "tasks", Role: "owner", UpdatedAt: time.Unix(1700000000, 0)}
+	props := calendarProps(u, c)
+	body := `<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:caldav" xmlns:a="http://apple.com/ns/ical/" xmlns:cs="http://calendarserver.org/ns/">` + propResponse(calendarHref(u.ID, c), propRequest{All: true}, props) + `</d:multistatus>`
+	assertValidXML(t, body)
+	if !strings.Contains(body, `name="VTODO"`) || strings.Contains(body, `name="VEVENT"`) {
+		t.Fatalf("tasks collection components were advertised incorrectly: %s", body)
+	}
+	if strings.Contains(body, "free-busy-query") {
+		t.Fatalf("VTODO collection must not advertise free-busy: %s", body)
+	}
+	if !strings.Contains(body, "calendar-query") || !strings.Contains(body, "sync-collection") {
+		t.Fatalf("required report missing: %s", body)
+	}
+}
+
+func TestDAVCollectionKindRejectsMixing(t *testing.T) {
+	cases := []struct {
+		comps []string
+		want  string
+		ok    bool
+	}{
+		{nil, "calendar", true},
+		{[]string{"VEVENT"}, "calendar", true},
+		{[]string{"VTODO"}, "tasks", true},
+		{[]string{"VEVENT", "VTODO"}, "", false},
+		{[]string{"VJOURNAL"}, "", false},
+	}
+	for _, tt := range cases {
+		got, err := collectionKind(tt.comps)
+		if (err == nil) != tt.ok || got != tt.want {
+			t.Fatalf("components=%v got=%s err=%v", tt.comps, got, err)
+		}
+	}
+}
+
+func TestDAVVTODOQueryFilterIsolation(t *testing.T) {
+	todo := []byte(`<c:calendar-query xmlns:c="urn:ietf:params:xml:ns:caldav"><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VTODO"/></c:comp-filter></c:filter></c:calendar-query>`)
+	event := []byte(`<c:calendar-query xmlns:c="urn:ietf:params:xml:ns:caldav"><c:filter><c:comp-filter name="VCALENDAR"><c:comp-filter name="VEVENT"/></c:comp-filter></c:filter></c:calendar-query>`)
+	if !reportMatchesCollection(todo, "VTODO") || reportMatchesCollection(todo, "VEVENT") || !reportMatchesCollection(event, "VEVENT") || reportMatchesCollection(event, "VTODO") {
+		t.Fatal("component filters failed to isolate VEVENT and VTODO")
+	}
+}

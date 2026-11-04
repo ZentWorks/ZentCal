@@ -227,3 +227,48 @@ func TestRecurrenceOrderingDoesNotCreateFalseChange(t *testing.T) {
 		t.Fatalf("equivalent recurrence ordering must not notify attendees: %v", keys)
 	}
 }
+
+func TestParseTaskRoundTripsAppleAndAndroidFields(t *testing.T) {
+	raw := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//Test//EN\r\nBEGIN:VTODO\r\nUID:task-123\r\nSUMMARY:Rechnung bezahlen\r\nDESCRIPTION:Bis Freitag\r\nDTSTART;VALUE=DATE:20261104\r\nDUE;VALUE=DATE:20261106\r\nSTATUS:NEEDS-ACTION\r\nPRIORITY:5\r\nRRULE:FREQ=MONTHLY\r\nBEGIN:VALARM\r\nTRIGGER:-PT30M\r\nACTION:DISPLAY\r\nDESCRIPTION:Erinnerung\r\nEND:VALARM\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
+	meta, err := ParseTask(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if meta.UID != "task-123" || meta.Summary != "Rechnung bezahlen" || meta.Start == nil || meta.End == nil {
+		t.Fatalf("unexpected task meta: %#v", meta)
+	}
+	normalized := Normalize(raw)
+	for _, field := range []string{"STATUS:NEEDS-ACTION", "PRIORITY:5", "RRULE:FREQ=MONTHLY", "BEGIN:VALARM", "DUE;VALUE=DATE:20261106"} {
+		if !strings.Contains(normalized, field) {
+			t.Fatalf("missing %s", field)
+		}
+	}
+	if _, err := Parse(normalized); err == nil {
+		t.Fatal("VEVENT parser must not accept VTODO")
+	}
+}
+
+func TestParseTaskUndatedCompletedAndRecurrenceOverride(t *testing.T) {
+	raw := "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nBEGIN:VTODO\r\nUID:task-1\r\nSUMMARY:Abgeschlossen\r\nSTATUS:COMPLETED\r\nCOMPLETED:20261104T103000Z\r\nEND:VTODO\r\nBEGIN:VTODO\r\nUID:task-1\r\nRECURRENCE-ID:20261105T100000Z\r\nSUMMARY:Wiederholung\r\nEND:VTODO\r\nEND:VCALENDAR\r\n"
+	m, err := ParseTask(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.UID != "task-1" || m.Start != nil || m.End != nil {
+		t.Fatalf("undated task altered: %#v", m)
+	}
+}
+
+func TestParseTaskRejectsCalendarObjectsAndMalformedResources(t *testing.T) {
+	cases := []string{
+		"BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:wrong\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n",
+		"BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nSUMMARY:no UID\r\nEND:VTODO\r\nEND:VCALENDAR\r\n",
+		"BEGIN:VCALENDAR\r\nMETHOD:REQUEST\r\nBEGIN:VTODO\r\nUID:x\r\nEND:VTODO\r\nEND:VCALENDAR\r\n",
+		"BEGIN:VCALENDAR\r\nBEGIN:VTODO\r\nUID:x\r\nEND:VTODO\r\nBEGIN:VTODO\r\nUID:y\r\nEND:VTODO\r\nEND:VCALENDAR\r\n",
+	}
+	for _, raw := range cases {
+		if _, err := ParseTask(raw); err == nil {
+			t.Fatalf("invalid task accepted: %q", raw)
+		}
+	}
+}

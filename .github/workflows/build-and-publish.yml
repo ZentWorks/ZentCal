@@ -16,11 +16,11 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
-          go-version: '1.27.1'
+          go-version: '1.27.3'
           cache: true
 
       - name: Download and verify modules
@@ -60,6 +60,45 @@ jobs:
           docker compose ps
           docker compose logs --no-color
           exit 1
+
+      - name: Database schema smoke test
+        env:
+          ZENTCAL_IMAGE: zentcal:ci
+        run: |
+          columns="$(docker compose exec -T db psql -U zentcal -d zentcal -Atqc "SELECT count(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='calendars' AND column_name IN ('admin_managed','admin_manager_user_id','admin_manager_visible')")"
+          test "$columns" = "3" || { echo "Missing admin calendar columns: $columns/3"; exit 1; }
+          tasks_type="$(docker compose exec -T db psql -U zentcal -d zentcal -Atqc "SELECT count(*) FROM pg_constraint WHERE conname='calendars_type_check' AND pg_get_constraintdef(oid) LIKE '%tasks%'")"
+          test "$tasks_type" = "1" || { echo "Missing VTODO collection constraint"; exit 1; }
+
+      - name: CalDAV reminders PostgreSQL integration smoke test
+        env:
+          ZENTCAL_IMAGE: zentcal:ci
+        run: |
+          # Execute the actual SQL constants from the Go source against the
+          # initialized PostgreSQL schema, not hand-copied test queries.
+          python3 - <<'PYREMINDERS' | docker compose exec -T db psql -v ON_ERROR_STOP=1 -U zentcal -d zentcal
+          import pathlib
+          import re
+          import uuid
+
+          source = pathlib.Path('internal/db/reminders.go').read_text(encoding='utf-8')
+          def statement(name):
+              match = re.search(r'const\s+' + name + r'\s*=\s*`([^`]*)`', source, re.S)
+              if not match:
+                  raise SystemExit('Missing SQL statement: ' + name)
+              return match.group(1).strip().rstrip(';')
+
+          uid, calendar_id = str(uuid.uuid4()), str(uuid.uuid4())
+          print('BEGIN;')
+          print(f"INSERT INTO users(id,name,email,password_hash) VALUES('{uid}','CI Reminders','ci-{uid}@example.invalid','test');")
+          print('PREPARE reminders_calendar AS ' + statement('remindersCalendarInsertSQL') + ';')
+          print('PREPARE reminders_membership AS ' + statement('remindersMembershipUpsertSQL') + ';')
+          for _ in range(2):
+              print(f"EXECUTE reminders_calendar('{calendar_id}','{uid}','{calendar_id}');")
+              print(f"EXECUTE reminders_membership('{calendar_id}','{uid}','{calendar_id}');")
+          print(f"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM calendars c JOIN memberships m ON m.calendar_id=c.id WHERE c.id='{calendar_id}'::uuid AND c.type='tasks' AND c.system_kind='reminders' AND c.dav_name='{calendar_id}' AND m.user_id='{uid}'::uuid AND m.role='owner' AND m.dav_name='{calendar_id}') THEN RAISE EXCEPTION 'Reminders persistence check failed'; END IF; END $$;")
+          print('ROLLBACK;')
+          PYREMINDERS
 
       - name: Compose cleanup
         if: always()

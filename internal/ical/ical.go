@@ -120,6 +120,77 @@ func Parse(raw string) (Meta, error) {
 	return m, nil
 }
 
+// ParseTask validates a VTODO-only resource, including recurrence overrides,
+// while preserving the original iCalendar text for clients to round-trip.
+// DTSTART is optional for reminders; DUE supplies the end/date for filtering.
+func ParseTask(raw string) (Meta, error) {
+	normalized := Normalize(raw)
+	lines := unfold(strings.Split(normalized, "\r\n"))
+	var out Meta
+	var stack []string
+	var found, completed bool
+	for _, line := range lines {
+		key, val, ok := splitLine(line)
+		if !ok {
+			continue
+		}
+		base := strings.ToUpper(strings.Split(key, ";")[0])
+		comp := strings.ToUpper(strings.TrimSpace(val))
+		switch base {
+		case "BEGIN":
+			if comp == "VEVENT" || comp == "VJOURNAL" || comp == "VFREEBUSY" {
+				return Meta{}, fmt.Errorf("VTODO collection does not support %s", comp)
+			}
+			if len(stack) == 0 && comp != "VCALENDAR" {
+				return Meta{}, fmt.Errorf("missing VCALENDAR")
+			}
+			if comp == "VTODO" && len(stack) == 1 {
+				found = true
+			}
+			stack = append(stack, comp)
+			continue
+		case "END":
+			if len(stack) == 0 || stack[len(stack)-1] != comp {
+				return Meta{}, fmt.Errorf("invalid iCalendar nesting")
+			}
+			if comp == "VTODO" && len(stack) == 2 {
+				completed = true
+			}
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		if len(stack) == 1 && base == "METHOD" {
+			return Meta{}, fmt.Errorf("METHOD not permitted for stored VTODO")
+		}
+		if len(stack) != 2 || stack[1] != "VTODO" {
+			continue
+		}
+		switch base {
+		case "UID":
+			if out.UID != "" && out.UID != strings.TrimSpace(val) {
+				return Meta{}, fmt.Errorf("multiple VTODO UID values")
+			}
+			out.UID = strings.TrimSpace(val)
+		case "SUMMARY":
+			out.Summary = unescape(val)
+		case "DESCRIPTION":
+			out.Description = unescape(val)
+		case "DTSTART":
+			if t, err := parseTime(key, val); err == nil {
+				out.Start = &t
+			}
+		case "DUE":
+			if t, err := parseTime(key, val); err == nil {
+				out.End = &t
+			}
+		}
+	}
+	if len(stack) != 0 || !found || !completed || out.UID == "" {
+		return Meta{}, fmt.Errorf("VCALENDAR/VTODO with UID required")
+	}
+	return out, nil
+}
+
 func parseAttendee(name, val string) Attendee {
 	a := Attendee{Email: calendarAddress(val), CN: unescape(param(name, "CN")), PartStat: strings.ToUpper(param(name, "PARTSTAT"))}
 	if a.PartStat == "" {

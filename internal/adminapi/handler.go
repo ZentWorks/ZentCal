@@ -463,7 +463,7 @@ func (h *Handler) deleteUser(r *http.Request, p principal, id string) error {
 	// Membership mutations use the same per-calendar advisory lock. Lock every
 	// shared calendar owned by this account before deciding whether it needs a
 	// replacement owner, so a concurrent downgrade/removal cannot orphan it.
-	rows, err := tx.Query(r.Context(), `SELECT c.id::text FROM calendars c JOIN memberships m ON m.calendar_id=c.id WHERE m.user_id=$1 AND m.role='owner' AND c.deleted_at IS NULL AND coalesce(c.system_kind,'')='' AND NOT c.admin_managed ORDER BY c.id::text`, id)
+	rows, err := tx.Query(r.Context(), `SELECT c.id::text FROM calendars c JOIN memberships m ON m.calendar_id=c.id WHERE m.user_id=$1 AND m.role='owner' AND c.deleted_at IS NULL AND coalesce(c.system_kind,'')='' ORDER BY c.id::text`, id)
 	if err != nil {
 		return err
 	}
@@ -493,29 +493,24 @@ func (h *Handler) deleteUser(r *http.Request, p principal, id string) error {
 SELECT c.id,$1,'owner',coalesce(c.dav_name,c.id::text)
 FROM calendars c
 JOIN memberships m ON m.calendar_id=c.id AND m.user_id=$2 AND m.role='owner'
-WHERE c.deleted_at IS NULL AND coalesce(c.system_kind,'')='' AND NOT c.admin_managed
+WHERE c.deleted_at IS NULL AND coalesce(c.system_kind,'')=''
   AND NOT EXISTS (SELECT 1 FROM memberships other WHERE other.calendar_id=c.id AND other.user_id<>$2 AND other.role='owner')
 ON CONFLICT(calendar_id,user_id) DO UPDATE SET role='owner'`, p.User.ID, id); err != nil {
 		return err
 	}
 	// Personal event history/delivery copies are not calendar-cascaded, so
 	// remove them before deleting the personal calendar.
-	if _, err = tx.Exec(r.Context(), `DELETE FROM event_versions WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind='personal')`, id); err != nil {
+	if _, err = tx.Exec(r.Context(), `DELETE FROM event_versions WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind IN ('personal','reminders'))`, id); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM scheduling_deliveries WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind='personal')`, id); err != nil {
+	if _, err = tx.Exec(r.Context(), `DELETE FROM scheduling_deliveries WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind IN ('personal','reminders'))`, id); err != nil {
 		return err
 	}
-	if _, err = tx.Exec(r.Context(), `DELETE FROM scheduling_messages WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind='personal')`, id); err != nil {
+	if _, err = tx.Exec(r.Context(), `DELETE FROM scheduling_messages WHERE event_id IN (SELECT e.id FROM events e JOIN calendars c ON c.id=e.calendar_id WHERE c.system_owner_user_id=$1 AND c.system_kind IN ('personal','reminders'))`, id); err != nil {
 		return err
 	}
 	// Personal data owned exclusively by the user is removed. Shared calendars are retained and reassigned to the acting admin.
-	if _, err = tx.Exec(r.Context(), `DELETE FROM calendars WHERE system_owner_user_id=$1 AND system_kind='personal'`, id); err != nil {
-		return err
-	}
-	if _, err = tx.Exec(r.Context(), `UPDATE calendars
-SET admin_manager_user_id=$1,admin_manager_visible=false,created_by=CASE WHEN created_by=$2 THEN $1 ELSE created_by END,updated_at=now()
-WHERE admin_managed AND admin_manager_user_id=$2 AND deleted_at IS NULL`, p.User.ID, id); err != nil {
+	if _, err = tx.Exec(r.Context(), `DELETE FROM calendars WHERE system_owner_user_id=$1 AND system_kind IN ('personal','reminders')`, id); err != nil {
 		return err
 	}
 	if _, err = tx.Exec(r.Context(), `UPDATE calendars SET created_by=$1 WHERE created_by=$2 AND coalesce(system_kind,'')=''`, p.User.ID, id); err != nil {
@@ -593,8 +588,8 @@ func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 	}
 	id := r.PathValue("id")
 	if r.Method == http.MethodGet {
-		c, err := h.App.GetAdminCalendar(r.Context(), p.User, id)
-		if err != nil || c.SystemKind != "" || !c.AdminManaged || c.AdminManagerUserID != p.User.ID {
+		c, err := h.App.GetCalendar(r.Context(), p.User, id)
+		if err != nil || c.SystemKind != "" {
 			httpx.Error(w, 404, "Kalender nicht gefunden.")
 			return
 		}
@@ -602,12 +597,7 @@ func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.Method == http.MethodDelete {
-		c, err := h.App.GetAdminCalendar(r.Context(), p.User, id)
-		if err != nil || !c.AdminManaged || c.AdminManagerUserID != p.User.ID {
-			httpx.Error(w, 404, "Kalender nicht gefunden.")
-			return
-		}
-		if err := h.App.DeleteAdminCalendar(r.Context(), r, p.User, id); err != nil {
+		if err := h.App.DeleteCalendar(r.Context(), r, p.User, id); err != nil {
 			httpx.Error(w, 400, err.Error())
 			return
 		}
@@ -624,8 +614,8 @@ func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, 400, err.Error())
 		return
 	}
-	c, err := h.App.GetAdminCalendar(r.Context(), p.User, id)
-	if err != nil || c.SystemKind != "" || !c.AdminManaged || c.AdminManagerUserID != p.User.ID {
+	c, err := h.App.GetCalendar(r.Context(), p.User, id)
+	if err != nil || c.SystemKind != "" {
 		httpx.Error(w, 404, "Kalender nicht gefunden.")
 		return
 	}
@@ -642,7 +632,7 @@ func (h *Handler) calendar(w http.ResponseWriter, r *http.Request) {
 	if in.Mode != nil {
 		mode = *in.Mode
 	}
-	c, err = h.App.UpdateAdminCalendar(r.Context(), r, p.User, id, name, desc, color, mode)
+	c, err = h.App.UpdateCalendar(r.Context(), r, p.User, id, name, desc, color, mode)
 	if err != nil {
 		httpx.Error(w, 400, err.Error())
 		return
@@ -657,7 +647,7 @@ func (h *Handler) calendarMembers(w http.ResponseWriter, r *http.Request) {
 	_ = p
 	id := r.PathValue("id")
 	var systemKind string
-	if err := h.DB.QueryRow(r.Context(), `SELECT coalesce(system_kind,'') FROM calendars WHERE id=$1 AND deleted_at IS NULL AND admin_managed AND admin_manager_user_id=$2`, id, p.User.ID).Scan(&systemKind); err != nil || systemKind != "" {
+	if err := h.DB.QueryRow(r.Context(), `SELECT coalesce(system_kind,'') FROM calendars WHERE id=$1 AND deleted_at IS NULL`, id).Scan(&systemKind); err != nil || systemKind != "" {
 		httpx.Error(w, 404, "Kalender nicht gefunden.")
 		return
 	}
@@ -696,12 +686,8 @@ func (h *Handler) calendarMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var systemKind string
-	if err := tx.QueryRow(r.Context(), `SELECT coalesce(system_kind,'') FROM calendars WHERE id=$1 AND deleted_at IS NULL AND admin_managed AND admin_manager_user_id=$2`, calID, p.User.ID).Scan(&systemKind); err != nil || systemKind != "" {
+	if err := tx.QueryRow(r.Context(), `SELECT coalesce(system_kind,'') FROM calendars WHERE id=$1 AND deleted_at IS NULL`, calID).Scan(&systemKind); err != nil || systemKind != "" {
 		httpx.Error(w, 404, "Kalender nicht gefunden.")
-		return
-	}
-	if uid == p.User.ID {
-		httpx.Error(w, 400, "Die eigene schreibgeschützte Ansicht wird über die Kalenderverwaltung gesteuert.")
 		return
 	}
 	var oldRole string
@@ -710,7 +696,21 @@ func (h *Handler) calendarMember(w http.ResponseWriter, r *http.Request) {
 		httpx.Error(w, 500, "Mitglied konnte nicht geprüft werden.")
 		return
 	}
-	ensureOwnerRemains := func() bool { return true }
+	ensureOwnerRemains := func() bool {
+		if oldRole != "owner" {
+			return true
+		}
+		var n int
+		if err := tx.QueryRow(r.Context(), `SELECT count(*) FROM memberships WHERE calendar_id=$1 AND role='owner' AND user_id<>$2`, calID, uid).Scan(&n); err != nil {
+			httpx.Error(w, 500, "Owner konnten nicht geprüft werden.")
+			return false
+		}
+		if n == 0 {
+			httpx.Error(w, 400, "Ein Kalender muss mindestens einen Eigentümer haben.")
+			return false
+		}
+		return true
+	}
 	if r.Method == http.MethodDelete {
 		if errors.Is(oldErr, pgx.ErrNoRows) {
 			httpx.Error(w, 404, "Mitglied nicht gefunden.")
