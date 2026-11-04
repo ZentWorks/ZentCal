@@ -377,4 +377,10 @@ ALTER TABLE calendars ADD CONSTRAINT calendars_type_check CHECK (type IN ('calen
 ALTER TABLE calendars ADD COLUMN IF NOT EXISTS admin_manager_user_id uuid REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE calendars ADD COLUMN IF NOT EXISTS admin_manager_visible boolean NOT NULL DEFAULT false;
 CREATE INDEX IF NOT EXISTS calendars_admin_manager_idx ON calendars(admin_manager_user_id) WHERE admin_managed AND deleted_at IS NULL;`,
+	// Recovery: old deployments can retain the original check constraint even
+	// after upgrading VTODO code. Always apply a fresh, append-only migration.
+	// Do not touch rows or other constraints; both existing and new collection
+	// types must be allowed before the application accepts DAV writes.
+	`ALTER TABLE calendars DROP CONSTRAINT IF EXISTS calendars_type_check;
+ALTER TABLE calendars ADD CONSTRAINT calendars_type_check CHECK (type IN ('calendar','resource','tasks'));`,
 }

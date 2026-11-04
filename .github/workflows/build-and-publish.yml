@@ -88,8 +88,19 @@ jobs:
                   raise SystemExit('Missing SQL statement: ' + name)
               return match.group(1).strip().rstrip(';')
 
+          # Reproduce a legacy schema: its CHECK constraint rejected 'tasks'.
+          # NOT VALID permits pre-existing tasks rows but still rejects new ones.
+          # Execute the *actual newest migration* before exercising DAV SQL.
+          migration_source = pathlib.Path('internal/db/migrations.go').read_text(encoding='utf-8')
+          migration_sql = re.findall(r'`([^`]*)`', migration_source, re.S)[-1].strip().rstrip(';')
+          if 'ADD CONSTRAINT calendars_type_check' not in migration_sql or "'tasks'" not in migration_sql:
+              raise SystemExit('Missing VTODO constraint recovery migration')
+
           uid, calendar_id = str(uuid.uuid4()), str(uuid.uuid4())
           print('BEGIN;')
+          print('ALTER TABLE calendars DROP CONSTRAINT IF EXISTS calendars_type_check;')
+          print("ALTER TABLE calendars ADD CONSTRAINT calendars_type_check CHECK (type IN ('calendar','resource')) NOT VALID;")
+          print(migration_sql + ';')
           print(f"INSERT INTO users(id,name,email,password_hash) VALUES('{uid}','CI Reminders','ci-{uid}@example.invalid','test');")
           print('PREPARE reminders_calendar AS ' + statement('remindersCalendarInsertSQL') + ';')
           print('PREPARE reminders_membership AS ' + statement('remindersMembershipUpsertSQL') + ';')
